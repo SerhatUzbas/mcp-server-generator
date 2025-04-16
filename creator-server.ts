@@ -28,7 +28,7 @@ const TYPESCRIPT_SDK_README_URL =
 
 // Initialize our MCP server
 const server = new McpServer({
-  name: "MCP Server Creator",
+  name: "MCP Server Generator",
   version: "1.0.0",
   description: "Create custom MCP servers with AI assistance",
 });
@@ -93,67 +93,6 @@ server.tool("getTemplate", {}, async () => {
   };
 });
 
-// Tool to create a new MCP server from code
-server.tool(
-  "createServer",
-  {
-    serverName: z.string().min(1),
-    serverCode: z.string().min(1),
-    registerWithClaude: z.boolean().default(true),
-  },
-  async ({ serverName, serverCode, registerWithClaude }) => {
-    try {
-      // Make sure the servers directory exists
-      await fs.mkdir(SERVERS_DIR, { recursive: true });
-
-      // Sanitize the server name for use as a filename
-      const sanitizedName = serverName.replace(/[^a-zA-Z0-9-_]/g, "_");
-      const filename = `${sanitizedName}.js`;
-      const filePath = path.join(SERVERS_DIR, filename);
-
-      // Write the server file
-      await fs.writeFile(filePath, serverCode);
-
-      // Register with Claude Desktop config if requested
-      let registrationMessage = "";
-      if (registerWithClaude) {
-        try {
-          registrationMessage = await registerServerWithClaude(
-            sanitizedName,
-            filePath
-          );
-        } catch (error) {
-          registrationMessage = `Could not register with Claude Desktop: ${
-            error instanceof Error ? error.message : String(error)
-          }`;
-        }
-      }
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Successfully created JavaScript MCP server "${serverName}" at ${filePath}.\n${registrationMessage}`,
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error creating server: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-);
-
-// Tool to list all created servers
 server.tool("listServers", {}, async () => {
   try {
     await fs.mkdir(SERVERS_DIR, { recursive: true });
@@ -185,6 +124,89 @@ server.tool("listServers", {}, async () => {
     };
   }
 });
+
+// Tool to create a new MCP server or update an existing one
+server.tool(
+  "createServer",
+  {
+    serverName: z.string().min(1),
+    serverCode: z.string().min(1),
+    registerWithClaude: z.boolean().default(true),
+    overwriteExisting: z
+      .boolean()
+      .default(false)
+      .describe("Whether to overwrite an existing server with the same name"),
+  },
+  async ({ serverName, serverCode, registerWithClaude, overwriteExisting }) => {
+    try {
+      // Make sure the servers directory exists
+      await fs.mkdir(SERVERS_DIR, { recursive: true });
+
+      // Sanitize the server name for use as a filename
+      const sanitizedName = serverName.replace(/[^a-zA-Z0-9-_]/g, "_");
+      const filename = `${sanitizedName}.js`;
+      const filePath = path.join(SERVERS_DIR, filename);
+
+      // Check if the server already exists
+      const exists = await fileExists(filePath);
+
+      // Handle existing server case
+      if (exists && !overwriteExisting) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Server "${serverName}" already exists at ${filePath}. Use 'updateServer' to update it, or set 'overwriteExisting' to true to replace it.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Write the server file (no backup)
+      await fs.writeFile(filePath, serverCode);
+
+      // Register with Claude Desktop config if requested
+      let registrationMessage = "";
+      if (registerWithClaude) {
+        try {
+          registrationMessage = await registerServerWithClaude(
+            sanitizedName,
+            filePath
+          );
+        } catch (error) {
+          registrationMessage = `Could not register with Claude Desktop: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+        }
+      }
+
+      const action = exists ? "updated" : "created";
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Successfully ${action} JavaScript MCP server "${serverName}" at ${filePath}.\n${registrationMessage}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error creating/updating server: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool to list all created servers
 
 // Tool to get Claude desktop config
 server.tool("getClaudeConfig", {}, async () => {
@@ -269,29 +291,31 @@ server.tool("getHelp", {}, async () => {
       {
         type: "text",
         text: `
-MCP Server Creator Help:
+MCP Server Generator Help:
 
-This tool helps you create custom JavaScript MCP servers and register them with Claude Desktop.
+This tool helps you create and update custom JavaScript MCP servers and register them with Claude Desktop.
 
 Available tools:
 
 1. getSdkInfo
    - Fetches the latest documentation from the TypeScript SDK GitHub repository
    
-2. getExampleServer
-   - Fetches specific MCP server examples from the SDK documentation
-   - Parameters:
-     - exampleName: Type of example to fetch ("echo", "sqlite", or "dynamic")
-   
-3. getTemplate
+2. getTemplate
    - Returns an example MCP server template to help guide development
    
-4. createServer
-   - Creates a new JavaScript MCP server from provided code
+3. createServer
+   - Creates a new JavaScript MCP server or updates an existing one
    - Parameters:
      - serverName: Name of your server (used for the filename)
      - serverCode: The complete JavaScript code for your server
      - registerWithClaude: Whether to register with Claude Desktop (default: true)
+     - overwriteExisting: Whether to overwrite an existing server (default: false)
+   
+4. updateServer
+   - Updates an existing JavaScript MCP server directly
+   - Parameters:
+     - serverName: Name of the server to update
+     - serverCode: The updated JavaScript code for your server
    
 5. listServers
    - Lists all servers created with this tool
@@ -303,21 +327,165 @@ Available tools:
    - Updates the Claude Desktop configuration file
    - Parameters:
      - configData: Complete JSON configuration
+
+8. getServerContent
+   - Retrieves the current content of a server file
+   - Parameters:
+     - serverName: Name of the server to get content for
      
-8. getHelp
+9. getHelp
    - Shows this help message
 
-Workflow:
+Workflow for creating a new server:
 1. Use getSdkInfo to learn about the TypeScript SDK
-2. Use getExampleServer to see real examples of MCP servers
-3. Use getTemplate to see how an MCP server is structured
-4. Ask me to create a custom server for your needs
-5. Use createServer to save the server and register it with Claude Desktop
+2. Use getTemplate to see how an MCP server is structured
+3. Ask to create a custom server for your needs
+4. Use createServer to save the server and register it with Claude Desktop
+5. To make changes later, use updateServer or createServer with overwriteExisting=true
+
+Workflow for updating servers:
+1. Use listServers to find the exact name of the server you want to update
+2. Use getServerContent with the exact server name to retrieve its current code
+3. Make your modifications to the code
+4. Use updateServer with the server name and modified code to save changes
 `,
       },
     ],
   };
 });
+
+// Tool to update an existing MCP server
+server.tool(
+  "updateServer",
+  {
+    serverName: z.string().min(1),
+    serverCode: z.string().min(1),
+  },
+  async ({ serverName, serverCode }) => {
+    try {
+      // Strip .js extension if it's already included in the serverName
+      const nameWithoutExtension = serverName.endsWith(".js")
+        ? serverName.slice(0, -3)
+        : serverName;
+
+      // Sanitize the server name for use as a filename
+      const sanitizedName = nameWithoutExtension.replace(
+        /[^a-zA-Z0-9-_]/g,
+        "_"
+      );
+      const filename = `${sanitizedName}.js`;
+      const filePath = path.join(SERVERS_DIR, filename);
+
+      // Check if the server exists
+      const exists = await fileExists(filePath);
+      if (!exists) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers, then use 'createServer' to create a new server if needed.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Read the existing file content before updating
+      const existingCode = await fs.readFile(filePath, "utf-8");
+      console.log(
+        `Reading existing code for ${nameWithoutExtension} before update`
+      );
+
+      // Update the server file
+      await fs.writeFile(filePath, serverCode);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Successfully updated MCP server "${nameWithoutExtension}" at ${filePath}.`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error updating server: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Add a new tool to handle partial updates
+
+// Tool to get the content of an existing MCP server
+server.tool(
+  "getServerContent",
+  {
+    serverName: z.string().min(1),
+  },
+  async ({ serverName }) => {
+    try {
+      // Strip .js extension if it's already included in the serverName
+      const nameWithoutExtension = serverName.endsWith(".js")
+        ? serverName.slice(0, -3)
+        : serverName;
+
+      // Sanitize the server name for use as a filename
+      const sanitizedName = nameWithoutExtension.replace(
+        /[^a-zA-Z0-9-_]/g,
+        "_"
+      );
+      const filename = `${sanitizedName}.js`;
+      const filePath = path.join(SERVERS_DIR, filename);
+
+      // Check if the server exists
+      const exists = await fileExists(filePath);
+      if (!exists) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Read the server file content
+      const serverCode = await fs.readFile(filePath, "utf-8");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Server "${nameWithoutExtension}" content:\n\n${serverCode}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error reading server content: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
 
 // Connect the server
 const transport = new StdioServerTransport();
