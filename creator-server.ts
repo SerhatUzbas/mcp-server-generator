@@ -20,11 +20,65 @@ const CURRENT_DIR = import.meta.url
 
 const SERVERS_DIR = path.join(CURRENT_DIR, "servers");
 
+// TypeScript SDK information
+const TYPESCRIPT_SDK_URL =
+  "https://github.com/modelcontextprotocol/typescript-sdk";
+const TYPESCRIPT_SDK_README_URL =
+  "https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/main/README.md";
+
 // Initialize our MCP server
 const server = new McpServer({
-  name: "MCP Server Generator",
+  name: "MCP Server Creator",
   version: "1.0.0",
   description: "Create custom MCP servers with AI assistance",
+});
+
+// Tool to fetch TypeScript SDK information from GitHub
+server.tool("getSdkInfo", {}, async () => {
+  try {
+    // Dynamically import node-fetch
+    const { default: fetch } = await import("node-fetch");
+
+    // Fetch the README content from the raw GitHub URL
+    const response = await fetch(TYPESCRIPT_SDK_README_URL);
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch from GitHub: ${response.status} ${response.statusText}`
+      );
+    }
+
+    // Get the README content
+    const readmeContent = await response.text();
+
+    // Add a header with link to the repository
+    const contentWithHeader = `# TypeScript SDK for Model Context Protocol
+
+Retrieved from: ${TYPESCRIPT_SDK_URL}
+
+${readmeContent}`;
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: contentWithHeader,
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error fetching SDK info: ${
+            error instanceof Error ? error.message : String(error)
+          }\n\nPlease visit ${TYPESCRIPT_SDK_URL} directly to view the documentation.`,
+        },
+      ],
+      isError: true,
+    };
+  }
 });
 
 // Tool to get the template
@@ -79,7 +133,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `Successfully created MCP server "${serverName}" at ${filePath}.\n${registrationMessage}`,
+            text: `Successfully created JavaScript MCP server "${serverName}" at ${filePath}.\n${registrationMessage}`,
           },
         ],
       };
@@ -217,38 +271,48 @@ server.tool("getHelp", {}, async () => {
         text: `
 MCP Server Creator Help:
 
-This tool helps you create custom MCP servers and register them with Claude Desktop.
+This tool helps you create custom JavaScript MCP servers and register them with Claude Desktop.
 
 Available tools:
 
-1. getTemplate
+1. getSdkInfo
+   - Fetches the latest documentation from the TypeScript SDK GitHub repository
+   
+2. getExampleServer
+   - Fetches specific MCP server examples from the SDK documentation
+   - Parameters:
+     - exampleName: Type of example to fetch ("echo", "sqlite", or "dynamic")
+   
+3. getTemplate
    - Returns an example MCP server template to help guide development
    
-2. createServer
-   - Creates a new MCP server from provided code
+4. createServer
+   - Creates a new JavaScript MCP server from provided code
    - Parameters:
      - serverName: Name of your server (used for the filename)
-     - serverCode: The complete TypeScript/JavaScript code for your server
+     - serverCode: The complete JavaScript code for your server
      - registerWithClaude: Whether to register with Claude Desktop (default: true)
    
-3. listServers
+5. listServers
    - Lists all servers created with this tool
    
-4. getClaudeConfig
+6. getClaudeConfig
    - Retrieves the current Claude Desktop configuration
    
-5. updateClaudeConfig
+7. updateClaudeConfig
    - Updates the Claude Desktop configuration file
    - Parameters:
      - configData: Complete JSON configuration
      
-6. getHelp
+8. getHelp
    - Shows this help message
 
 Workflow:
-1. Use getTemplate to see how an MCP server is structured
-2. Ask me to create a custom server for your needs
-3. Use createServer to save the server and register it with Claude Desktop
+1. Use getSdkInfo to learn about the TypeScript SDK
+2. Use getExampleServer to see real examples of MCP servers
+3. Use getTemplate to see how an MCP server is structured
+4. Ask me to create a custom server for your needs
+5. Use createServer to save the server and register it with Claude Desktop
 `,
       },
     ],
