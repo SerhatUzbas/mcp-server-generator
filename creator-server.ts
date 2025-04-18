@@ -6,6 +6,8 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { TEMPLATE_MCP_SERVER } from "./template.js";
+import { exec } from "child_process";
+import { promisify } from "util";
 
 // Path to the Claude desktop config file
 const CLAUDE_CONFIG_PATH = path.join(
@@ -32,6 +34,8 @@ const server = new McpServer({
   version: "1.0.0",
   description: "Create custom MCP servers with AI assistance",
 });
+
+const execAsync = promisify(exec);
 
 // Tool to fetch TypeScript SDK information from GitHub
 server.tool("getSdkInfo", {}, async () => {
@@ -332,8 +336,18 @@ Available tools:
    - Retrieves the current content of a server file
    - Parameters:
      - serverName: Name of the server to get content for
+
+9. analyzeServerDependencies
+   - Analyzes a server file to detect npm dependencies
+   - Parameters:
+     - serverName: Name of the server to analyze
+
+10. installServerDependencies
+   - Installs npm packages required by a server
+   - Parameters:
+     - dependencies: Array of package names to install
      
-9. getHelp
+11. getHelp
    - Shows this help message
 
 Workflow for creating a new server:
@@ -341,13 +355,16 @@ Workflow for creating a new server:
 2. Use getTemplate to see how an MCP server is structured
 3. Ask to create a custom server for your needs
 4. Use createServer to save the server and register it with Claude Desktop
-5. To make changes later, use updateServer or createServer with overwriteExisting=true
+5. Use analyzeServerDependencies to detect required packages
+6. Use installServerDependencies to install the required packages
+7. To make changes later, use updateServer or createServer with overwriteExisting=true
 
 Workflow for updating servers:
 1. Use listServers to find the exact name of the server you want to update
 2. Use getServerContent with the exact server name to retrieve its current code
 3. Make your modifications to the code
 4. Use updateServer with the server name and modified code to save changes
+5. If you added new dependencies, use analyzeServerDependencies and installServerDependencies
 `,
       },
     ],
@@ -477,6 +494,188 @@ server.tool(
           {
             type: "text",
             text: `Error reading server content: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool to install dependencies for a server
+server.tool(
+  "installServerDependencies",
+  {
+    dependencies: z
+      .array(z.string())
+      .describe("List of npm packages to install"),
+  },
+  async ({ dependencies }) => {
+    try {
+      if (!dependencies || dependencies.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "No dependencies specified. Please provide a list of npm packages to install.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const dependencyString = dependencies.join(" ");
+      console.log(`Installing dependencies: ${dependencyString}`);
+
+      // Execute npm install command
+      const { stdout, stderr } = await execAsync(
+        `npm install ${dependencyString}`
+      );
+
+      if (stderr && !stderr.includes("npm WARN")) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Warning during installation: ${stderr}\n\nDependencies may have been partially installed: ${dependencyString}`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Successfully installed dependencies: ${dependencyString}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error installing dependencies: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool to analyze server dependencies
+server.tool(
+  "analyzeServerDependencies",
+  {
+    serverName: z.string().min(1),
+  },
+  async ({ serverName }) => {
+    try {
+      // Strip .js extension if it's already included in the serverName
+      const nameWithoutExtension = serverName.endsWith(".js")
+        ? serverName.slice(0, -3)
+        : serverName;
+
+      // Sanitize the server name for use as a filename
+      const sanitizedName = nameWithoutExtension.replace(
+        /[^a-zA-Z0-9-_]/g,
+        "_"
+      );
+      const filename = `${sanitizedName}.js`;
+      const filePath = path.join(SERVERS_DIR, filename);
+
+      // Check if the server exists
+      const exists = await fileExists(filePath);
+      if (!exists) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Read the server file content
+      const serverCode = await fs.readFile(filePath, "utf-8");
+
+      // Simple regex to find import statements
+      const importRegex = /import\s+(?:[\w\s{},*]+from\s+)?['"]([^'"]+)['"]/g;
+      const imports = [];
+      let match;
+
+      while ((match = importRegex.exec(serverCode)) !== null) {
+        imports.push(match[1]);
+      }
+
+      // Filter out built-in Node.js modules and SDK imports
+      const nodeBuiltins = [
+        "fs",
+        "path",
+        "http",
+        "https",
+        "util",
+        "os",
+        "child_process",
+        "crypto",
+      ];
+      const sdkImports = ["@modelcontextprotocol/sdk"];
+
+      const externalDependencies = imports.filter((imp) => {
+        // Check if it's not a relative import, built-in module, or SDK import
+        const isRelative =
+          imp.startsWith("./") || imp.startsWith("../") || imp.startsWith("/");
+        const isBuiltin = nodeBuiltins.some(
+          (builtin) => imp === builtin || imp.startsWith(`${builtin}/`)
+        );
+        const isSdk = sdkImports.some(
+          (sdk) => imp === sdk || imp.startsWith(`${sdk}/`)
+        );
+
+        return !isRelative && !isBuiltin && !isSdk;
+      });
+
+      // Extract package names (remove trailing paths)
+      const packageNames = externalDependencies.map((dep) => {
+        const parts = dep.split("/");
+        if (dep.startsWith("@")) {
+          // Handle scoped packages like @org/package
+          return `${parts[0]}/${parts[1]}`;
+        } else {
+          return parts[0];
+        }
+      });
+
+      // Remove duplicates
+      const uniquePackages = [...new Set(packageNames)];
+
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              uniquePackages.length > 0
+                ? `Server "${nameWithoutExtension}" depends on these packages: ${uniquePackages.join(
+                    ", "
+                  )}`
+                : `Server "${nameWithoutExtension}" does not have external dependencies.`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error analyzing server dependencies: ${
               error instanceof Error ? error.message : String(error)
             }`,
           },
