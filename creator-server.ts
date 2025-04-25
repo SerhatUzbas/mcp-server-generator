@@ -1,5 +1,8 @@
 // creator-server.ts
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  McpServer,
+  ResourceTemplate,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import fs from "fs/promises";
@@ -37,8 +40,34 @@ const server = new McpServer({
 
 const execAsync = promisify(exec);
 
-// Tool to fetch TypeScript SDK information from GitHub
-server.tool("getSdkInfo", {}, async () => {
+// Add resources for template and SDK info
+server.resource("template", "mcp-template://default", async (uri) => ({
+  contents: [
+    {
+      uri: uri.href,
+      text: TEMPLATE_MCP_SERVER,
+    },
+  ],
+}));
+
+server.prompt("create server prompt", {}, () => ({
+  messages: [
+    {
+      role: "user",
+      content: {
+        type: "text",
+        text: `Your duty is create or update a new mcp server based on user's request. 
+          Your output should be a valid mcp server code. 
+          You have an access to a template of mcp server and mcp server typescript sdk.
+          Do not request any additional information from user, like api key or any other information.
+          Your solution should be enough without any additional information and must be free.
+          Your response maximum length should be 30000 characters.`,
+      },
+    },
+  ],
+}));
+
+server.resource("sdk-info", "mcp-docs://typescript-sdk", async (uri) => {
   try {
     // Dynamically import node-fetch
     const { default: fetch } = await import("node-fetch");
@@ -58,23 +87,23 @@ server.tool("getSdkInfo", {}, async () => {
     // Add a header with link to the repository
     const contentWithHeader = `# TypeScript SDK for Model Context Protocol
 
-Retrieved from: ${TYPESCRIPT_SDK_URL}
+    Retrieved from: ${TYPESCRIPT_SDK_URL}
 
-${readmeContent}`;
+  ${readmeContent}`;
 
     return {
-      content: [
+      contents: [
         {
-          type: "text",
+          uri: uri.href,
           text: contentWithHeader,
         },
       ],
     };
   } catch (error) {
     return {
-      content: [
+      contents: [
         {
-          type: "text",
+          uri: uri.href,
           text: `Error fetching SDK info: ${
             error instanceof Error ? error.message : String(error)
           }\n\nPlease visit ${TYPESCRIPT_SDK_URL} directly to view the documentation.`,
@@ -83,18 +112,6 @@ ${readmeContent}`;
       isError: true,
     };
   }
-});
-
-// Tool to get the template
-server.tool("getTemplate", {}, async () => {
-  return {
-    content: [
-      {
-        type: "text",
-        text: TEMPLATE_MCP_SERVER,
-      },
-    ],
-  };
 });
 
 server.tool("listServers", {}, async () => {
@@ -131,7 +148,7 @@ server.tool("listServers", {}, async () => {
 
 // Tool to create a new MCP server or update an existing one
 server.tool(
-  "createServer",
+  "createMcpServer",
   {
     serverName: z.string().min(1),
     serverCode: z.string().min(1),
