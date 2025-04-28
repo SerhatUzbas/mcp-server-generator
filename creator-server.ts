@@ -33,7 +33,7 @@ const TYPESCRIPT_SDK_README_URL =
 
 // Initialize our MCP server
 const server = new McpServer({
-  name: "MCP Server Generator",
+  name: "MCP Server Creator",
   version: "1.0.0",
   description: "Create custom MCP servers with AI assistance",
 });
@@ -56,11 +56,13 @@ server.prompt("create server prompt", {}, () => ({
       role: "user",
       content: {
         type: "text",
-        text: `Your duty is create or update a new mcp server based on user's request. 
+        text: `Always start with a "hi" message.
+          Your duty is create or update a new mcp server based on user's request. 
           Your output should be a valid mcp server code. 
           You have an access to a template of mcp server and mcp server typescript sdk.
           Do not request any additional information from user, like api key or any other information.
           Your solution should be enough without any additional information and must be free.
+          Do not forget to install dependencies with npm.
           Your response maximum length should be 30000 characters.`,
       },
     },
@@ -368,8 +370,6 @@ Available tools:
    - Shows this help message
 
 Workflow for creating a new server:
-1. Use getSdkInfo to learn about the TypeScript SDK
-2. Use getTemplate to see how an MCP server is structured
 3. Ask to create a custom server for your needs
 4. Use createServer to save the server and register it with Claude Desktop
 5. Use analyzeServerDependencies to detect required packages
@@ -530,6 +530,9 @@ server.tool(
       .describe("List of npm packages to install"),
   },
   async ({ dependencies }) => {
+    // Use stderr for logging to avoid interfering with MCP protocol on stdout
+    const log = (msg: string) => process.stderr.write(`[installServerDependencies] ${msg}\n`);
+    
     try {
       if (!dependencies || dependencies.length === 0) {
         return {
@@ -544,40 +547,126 @@ server.tool(
       }
 
       const dependencyString = dependencies.join(" ");
-      console.log(`Installing dependencies: ${dependencyString}`);
+      log(`Installing dependencies: ${dependencyString}`);
 
-      // Execute npm install command
-      const { stdout, stderr } = await execAsync(
-        `npm install ${dependencyString}`
-      );
+      // Get current directory for logging
+      const currentDir = process.cwd();
+      log(`Current working directory: ${currentDir}`);
 
-      if (stderr && !stderr.includes("npm WARN")) {
+      // Check for running npm processes
+      try {
+        const { stdout: psOutput } = await execAsync("ps aux | grep npm");
+        log(`Current npm processes: \n${psOutput}`);
+      } catch (psError) {
+        log(`Error checking npm processes: ${psError}`);
+      }
+
+      // Try using yarn first
+      try {
+        log("Checking if yarn is available...");
+        await execAsync("yarn --version");
+        log("Yarn is available, using it for installation");
+        
+        // Use yarn add instead of npm install
+        const { stdout, stderr } = await execAsync(
+          `yarn add ${dependencyString} --no-lockfile`
+        );
+        
+        if (stderr && !stderr.includes("yarn warn")) {
+          log(`Yarn installation stderr: ${stderr}`);
+        }
+        
+        log(`Yarn installation stdout: ${stdout}`);
         return {
           content: [
             {
               type: "text",
-              text: `Warning during installation: ${stderr}\n\nDependencies may have been partially installed: ${dependencyString}`,
+              text: `Successfully installed dependencies using yarn: ${dependencyString}`,
             },
           ],
         };
+      } catch (yarnError) {
+        log(`Yarn not available or failed: ${yarnError}`);
+        
+        // Fallback to npm if yarn is not available
+        log("Falling back to npm with custom cache directory");
+        
+        // Create a temporary npm cache directory
+        const npmCacheDir = path.join(os.tmpdir(), `npm-cache-${Date.now()}`);
+        await fs.mkdir(npmCacheDir, { recursive: true });
+        log(`Created temporary npm cache directory: ${npmCacheDir}`);
+        
+        try {
+          // Clean npm cache first
+          await execAsync("npm cache clean --force");
+          log("npm cache cleaned successfully");
+          
+          // Wait a bit for cache cleaning to complete
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          // Run npm with environment variables to isolate the cache
+          const installEnv = Object.assign({}, process.env, {
+            npm_config_cache: npmCacheDir
+          });
+          
+          // Try to install with a custom cache directory
+          const { stdout, stderr } = await execAsync(
+            `npm install ${dependencyString} --no-package-lock --no-audit --no-fund`,
+            { env: installEnv }
+          );
+          
+          // Check for any errors in stderr that aren't just warnings
+          if (stderr && !stderr.includes("npm WARN")) {
+            log(`Installation stderr: ${stderr}`);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Warning during installation: ${stderr}\n\nDependencies may have been partially installed: ${dependencyString}`,
+                },
+              ],
+            };
+          }
+          
+          log(`Installation stdout: ${stdout}`);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Successfully installed dependencies: ${dependencyString}`,
+              },
+            ],
+          };
+        } catch (npmError) {
+          log(`Npm installation error: ${npmError}`);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error installing dependencies. Both yarn and npm failed.\n\nPlease try installing manually by running: npm install ${dependencyString}`,
+              },
+            ],
+            isError: true,
+          };
+        } finally {
+          // Clean up temporary npm cache
+          try {
+            await fs.rm(npmCacheDir, { recursive: true, force: true });
+            log(`Cleaned up temporary npm cache directory`);
+          } catch (cleanError) {
+            log(`Error cleaning up npm cache directory: ${cleanError}`);
+          }
+        }
       }
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Successfully installed dependencies: ${dependencyString}`,
-          },
-        ],
-      };
     } catch (error) {
+      log(`Installation error: ${error}`);
       return {
         content: [
           {
             type: "text",
             text: `Error installing dependencies: ${
               error instanceof Error ? error.message : String(error)
-            }`,
+            }\n\nPlease try installing manually by running: npm install ${dependencies.join(" ")}`,
           },
         ],
         isError: true,
