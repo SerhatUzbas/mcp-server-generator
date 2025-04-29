@@ -28,6 +28,7 @@ const SERVERS_DIR = path.join(CURRENT_DIR, "servers");
 // TypeScript SDK information
 const TYPESCRIPT_SDK_URL =
   "https://github.com/modelcontextprotocol/typescript-sdk";
+
 const TYPESCRIPT_SDK_README_URL =
   "https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/main/README.md";
 
@@ -50,20 +51,78 @@ server.resource("template", "mcp-template://default", async (uri) => ({
   ],
 }));
 
-server.prompt("create server prompt", {}, () => ({
+server.prompt("system prompt", {}, () => ({
   messages: [
     {
       role: "user",
       content: {
         type: "text",
-        text: `Always start with a "hi" message.
-          Your duty is create or update a new mcp server based on user's request. 
-          Your output should be a valid mcp server code. 
-          You have an access to a template of mcp server and mcp server typescript sdk.
-          Do not request any additional information from user, like api key or any other information.
-          Your solution should be enough without any additional information and must be free.
-          Do not forget to install dependencies with npm.
-          Your response maximum length should be 30000 characters.`,
+        text: `# MCP Server Creator Assistant
+
+## YOUR ROLE AND BEHAVIOR
+- You are an expert TypeScript developer specializing in MCP (Model Context Protocol) servers
+- Be friendly and confident in your responses, starting with a brief greeting
+- Explain your process step-by-step to help users understand what you're doing
+- Make decisions autonomously without asking for additional input when possible
+- Favor creating complete, working solutions rather than partial examples
+- Write clean, modern TypeScript code with proper error handling and comments
+- Always use ES modules (import/export) syntax, not CommonJS (require)
+
+## SCENARIOS
+
+### SCENARIO 1: CREATING A NEW MCP SERVER
+When a user asks for a new MCP server:
+1. Begin by acknowledging their request and confirming the server's purpose
+2. Create a complete, production-ready JavaScript file following MCP standards
+3. Include all essential components:
+   - Proper imports from "@modelcontextprotocol/sdk/server/mcp.js"
+   - Server definition with meaningful name, version, and description
+   - Well-designed tools with proper parameter validation using Zod
+   - Resources for static/dynamic data when appropriate
+   - Prompts if the server needs to guide LLM interactions
+   - Connection setup with StdioServerTransport
+4. Automatically identify necessary npm dependencies
+5. Install dependencies using the installServerDependencies tool
+6. Register the server with Claude Desktop
+
+### SCENARIO 2: UPDATING AN EXISTING MCP SERVER
+When a user wants to update an existing server:
+1. Use listServers to show available servers
+2. Retrieve the current code with getServerContent
+3. Analyze the existing structure before making changes
+4. Preserve existing functionality while adding new features
+5. Follow the same code standards as the original
+6. Install any new dependencies needed
+7. Clearly explain what changes you made
+
+## CODE IMPLEMENTATION REQUIREMENTS
+- All servers must use the TypeScript SDK
+- Structure server code in this order: imports → server definition → resources → tools → prompts → transport/connection
+- Every tool must use Zod validation for parameters
+- Include thorough error handling in async functions
+- Add descriptive comments for complex logic
+- Keep responses under 30,000 characters
+- NO placeholder code - everything must be fully implemented
+
+## HANDLING API KEYS AND AUTHENTICATION
+- If an API requires authentication, explain this requirement to the user
+- Design the server to accept API keys as tool parameters, never hardcoded
+- Create clear validation for API key parameters (using z.string().min(1))
+- Explain to users that they'll need to provide their own API key when using the server
+- For services that offer free tiers or trials, mention this and provide signup links
+- When possible, suggest free/open alternatives that don't require authentication
+- NEVER store API keys in the server code itself - always require them as parameters
+
+## TOOLS TO USE
+- listServers: To show available servers
+- getServerContent: To retrieve existing server code
+- getTemplate: To see example MCP server structure
+- createServer: To save a new server and register with Claude
+- updateServer: To modify an existing server
+- analyzeServerDependencies: To identify required packages
+- installServerDependencies: To install npm packages
+
+After creating or updating a server, provide a brief summary of what the server does and how to use it. Do not forget to restart Claude Desktop after updating the server.`,
       },
     },
   ],
@@ -89,7 +148,7 @@ server.resource("sdk-info", "mcp-docs://typescript-sdk", async (uri) => {
     // Add a header with link to the repository
     const contentWithHeader = `# TypeScript SDK for Model Context Protocol
 
-    Retrieved from: ${TYPESCRIPT_SDK_URL}
+    Retrieved from: ${TYPESCRIPT_SDK_README_URL}
 
   ${readmeContent}`;
 
@@ -531,8 +590,9 @@ server.tool(
   },
   async ({ dependencies }) => {
     // Use stderr for logging to avoid interfering with MCP protocol on stdout
-    const log = (msg: string) => process.stderr.write(`[installServerDependencies] ${msg}\n`);
-    
+    const log = (msg: string) =>
+      process.stderr.write(`[installServerDependencies] ${msg}\n`);
+
     try {
       if (!dependencies || dependencies.length === 0) {
         return {
@@ -553,120 +613,206 @@ server.tool(
       const currentDir = process.cwd();
       log(`Current working directory: ${currentDir}`);
 
-      // Check for running npm processes
-      try {
-        const { stdout: psOutput } = await execAsync("ps aux | grep npm");
-        log(`Current npm processes: \n${psOutput}`);
-      } catch (psError) {
-        log(`Error checking npm processes: ${psError}`);
-      }
+      // Get project directory - use CURRENT_DIR from the top of the file
+      // which is defined based on import.meta.url
+      const projectDir = CURRENT_DIR;
+      log(`Project directory: ${projectDir}`);
 
-      // Try using yarn first
+      // Create a completely isolated environment for npm
+      const tempDir = path.join(os.tmpdir(), `mcp-npm-${Date.now()}`);
+      await fs.mkdir(tempDir, { recursive: true });
+      log(`Created temporary directory: ${tempDir}`);
+
+      // Create a minimal package.json in the temp directory
+      const packageJson = {
+        name: "mcp-temp-install",
+        version: "1.0.0",
+        private: true,
+      };
+
+      await fs.writeFile(
+        path.join(tempDir, "package.json"),
+        JSON.stringify(packageJson, null, 2)
+      );
+
+      log(`Created temporary package.json`);
+
       try {
-        log("Checking if yarn is available...");
-        await execAsync("yarn --version");
-        log("Yarn is available, using it for installation");
-        
-        // Use yarn add instead of npm install
+        // Change to the temp directory for installation
+        const originalDir = process.cwd();
+        process.chdir(tempDir);
+        log(`Changed working directory to: ${tempDir}`);
+
+        // Install dependencies in the temp directory
         const { stdout, stderr } = await execAsync(
-          `yarn add ${dependencyString} --no-lockfile`
+          `npm install ${dependencyString} --no-package-lock --no-audit --no-fund`
         );
-        
-        if (stderr && !stderr.includes("yarn warn")) {
-          log(`Yarn installation stderr: ${stderr}`);
+
+        // Return to original directory
+        process.chdir(originalDir);
+        log(`Returned to working directory: ${originalDir}`);
+
+        if (stderr && !stderr.includes("npm WARN")) {
+          log(`Installation stderr: ${stderr}`);
         }
-        
-        log(`Yarn installation stdout: ${stdout}`);
+
+        log(`Installation stdout: ${stdout}`);
+
+        // Create node_modules in the project directory if it doesn't exist
+        const projectNodeModules = path.join(projectDir, "node_modules");
+        log(`Project node_modules path: ${projectNodeModules}`);
+        await fs.mkdir(projectNodeModules, { recursive: true });
+
+        // For each dependency, copy its folder from temp node_modules to project node_modules
+        for (const dep of dependencies) {
+          const baseDep = dep.split("@")[0]; // Handle version specifiers
+          const srcPath = path.join(tempDir, "node_modules", baseDep);
+          const destPath = path.join(projectNodeModules, baseDep);
+
+          try {
+            // Check if directory exists before copying
+            await fs.access(srcPath);
+            log(`Found dependency at ${srcPath}`);
+
+            // Remove existing directory if it exists
+            try {
+              await fs.access(destPath);
+              await fs.rm(destPath, { recursive: true, force: true });
+              log(`Removed existing ${destPath}`);
+            } catch (err) {
+              // Ignore if directory doesn't exist
+              log(`No existing directory at ${destPath}`);
+            }
+
+            // Create parent directory if needed
+            await fs.mkdir(path.dirname(destPath), { recursive: true });
+
+            // Copy recursively using fs instead of exec
+            log(`Copying from ${srcPath} to ${destPath}`);
+            await copyRecursive(srcPath, destPath);
+            log(`Copied ${baseDep} to project node_modules`);
+          } catch (err) {
+            log(`Error copying ${baseDep}: ${err}`);
+          }
+        }
+
+        // Update the package.json file with the new dependencies
+        log(`Updating package.json with new dependencies`);
+        const projectPackageJsonPath = path.join(projectDir, "package.json");
+        try {
+          // Read the package.json from the temp directory to get the installed versions
+          const tempPackageJsonPath = path.join(tempDir, "package.json");
+          const tempPackageJsonStr = await fs.readFile(
+            tempPackageJsonPath,
+            "utf-8"
+          );
+          const tempPackageJson = JSON.parse(tempPackageJsonStr);
+
+          // Get the versions of the installed packages
+          const installedDeps = tempPackageJson.dependencies || {};
+
+          // Read the project's package.json
+          let projectPackageJson;
+          try {
+            const projectPackageJsonStr = await fs.readFile(
+              projectPackageJsonPath,
+              "utf-8"
+            );
+            projectPackageJson = JSON.parse(projectPackageJsonStr);
+          } catch (err) {
+            log(`Could not read project package.json, creating a new one`);
+            projectPackageJson = {
+              name: "mcp-project",
+              version: "1.0.0",
+              type: "module",
+              dependencies: {},
+            };
+          }
+
+          // Ensure dependencies section exists
+          if (!projectPackageJson.dependencies) {
+            projectPackageJson.dependencies = {};
+          }
+
+          // Add the new dependencies with their versions
+          let dependenciesAdded = false;
+          for (const dep of dependencies) {
+            const baseDep = dep.split("@")[0]; // Handle version specifiers
+            if (installedDeps[baseDep]) {
+              projectPackageJson.dependencies[baseDep] = installedDeps[baseDep];
+              dependenciesAdded = true;
+              log(`Added ${baseDep}@${installedDeps[baseDep]} to package.json`);
+            }
+          }
+
+          if (dependenciesAdded) {
+            // Write the updated package.json
+            await fs.writeFile(
+              projectPackageJsonPath,
+              JSON.stringify(projectPackageJson, null, 2)
+            );
+            log(`Updated package.json successfully`);
+          } else {
+            log(`No dependencies were added to package.json`);
+          }
+        } catch (packageJsonErr) {
+          log(`Error updating package.json: ${packageJsonErr}`);
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: `Successfully installed dependencies using yarn: ${dependencyString}`,
+              text: `Successfully installed dependencies: ${dependencyString}`,
             },
           ],
         };
-      } catch (yarnError) {
-        log(`Yarn not available or failed: ${yarnError}`);
-        
-        // Fallback to npm if yarn is not available
-        log("Falling back to npm with custom cache directory");
-        
-        // Create a temporary npm cache directory
-        const npmCacheDir = path.join(os.tmpdir(), `npm-cache-${Date.now()}`);
-        await fs.mkdir(npmCacheDir, { recursive: true });
-        log(`Created temporary npm cache directory: ${npmCacheDir}`);
-        
+      } catch (error) {
+        log(`Installation error: ${error}`);
+
+        // Attempt to return to original directory if needed
         try {
-          // Clean npm cache first
-          await execAsync("npm cache clean --force");
-          log("npm cache cleaned successfully");
-          
-          // Wait a bit for cache cleaning to complete
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          
-          // Run npm with environment variables to isolate the cache
-          const installEnv = Object.assign({}, process.env, {
-            npm_config_cache: npmCacheDir
-          });
-          
-          // Try to install with a custom cache directory
-          const { stdout, stderr } = await execAsync(
-            `npm install ${dependencyString} --no-package-lock --no-audit --no-fund`,
-            { env: installEnv }
-          );
-          
-          // Check for any errors in stderr that aren't just warnings
-          if (stderr && !stderr.includes("npm WARN")) {
-            log(`Installation stderr: ${stderr}`);
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Warning during installation: ${stderr}\n\nDependencies may have been partially installed: ${dependencyString}`,
-                },
-              ],
-            };
-          }
-          
-          log(`Installation stdout: ${stdout}`);
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Successfully installed dependencies: ${dependencyString}`,
-              },
-            ],
-          };
-        } catch (npmError) {
-          log(`Npm installation error: ${npmError}`);
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Error installing dependencies. Both yarn and npm failed.\n\nPlease try installing manually by running: npm install ${dependencyString}`,
-              },
-            ],
-            isError: true,
-          };
-        } finally {
-          // Clean up temporary npm cache
-          try {
-            await fs.rm(npmCacheDir, { recursive: true, force: true });
-            log(`Cleaned up temporary npm cache directory`);
-          } catch (cleanError) {
-            log(`Error cleaning up npm cache directory: ${cleanError}`);
-          }
+          process.chdir(currentDir);
+          log(`Ensured return to original directory: ${currentDir}`);
+        } catch (cdErr) {
+          log(`Error returning to original directory: ${cdErr}`);
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error installing dependencies: ${
+                error instanceof Error ? error.message : String(error)
+              }\n\nPlease try installing manually by running: npm install ${dependencies.join(
+                " "
+              )}`,
+            },
+          ],
+          isError: true,
+        };
+      } finally {
+        // Clean up temporary directory
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+          log(`Cleaned up temporary directory`);
+        } catch (cleanError) {
+          log(`Error cleaning up temporary directory: ${cleanError}`);
         }
       }
-    } catch (error) {
-      log(`Installation error: ${error}`);
+    } catch (outerError) {
+      log(`Outer installation error: ${outerError}`);
       return {
         content: [
           {
             type: "text",
             text: `Error installing dependencies: ${
-              error instanceof Error ? error.message : String(error)
-            }\n\nPlease try installing manually by running: npm install ${dependencies.join(" ")}`,
+              outerError instanceof Error
+                ? outerError.message
+                : String(outerError)
+            }\n\nPlease try installing manually by running: npm install ${dependencies.join(
+              " "
+            )}`,
           },
         ],
         isError: true,
@@ -674,6 +820,24 @@ server.tool(
     }
   }
 );
+
+// Helper function to recursively copy directories
+async function copyRecursive(src: string, dest: string) {
+  const stats = await fs.stat(src);
+
+  if (stats.isDirectory()) {
+    await fs.mkdir(dest, { recursive: true });
+    const entries = await fs.readdir(src);
+
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry);
+      const destPath = path.join(dest, entry);
+      await copyRecursive(srcPath, destPath);
+    }
+  } else {
+    await fs.copyFile(src, dest);
+  }
+}
 
 // Tool to analyze server dependencies
 server.tool(
