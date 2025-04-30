@@ -24,7 +24,7 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
 1. Clone this repository:
 
    ```bash
-   git clone https://github.com/yourusername/mcprotocol.git
+   git clone https://github.com/SerhatUzbas/mcp-server-generator.git
    cd mcprotocol
    ```
 
@@ -34,13 +34,7 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
    npm install
    ```
 
-3. Start the creator server:
-
-   ```bash
-   npx tsx creator-server.ts
-   ```
-
-4. Register the creator server with Claude Desktop:
+3. Register the creator server with Claude Desktop:
 
    Macos: ~/Library/Application Support/Claude/claude_desktop_config.json for macos users
    Windows: %APPDATA%\Claude\claude_desktop_config.json
