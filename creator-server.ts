@@ -1,38 +1,31 @@
 // creator-server.ts
-import {
-  McpServer,
-  ResourceTemplate,
-} from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
-import fs from "fs/promises";
-import path from "path";
-import os from "os";
 import { TEMPLATE_MCP_SERVER } from "./template.js";
 import { exec } from "child_process";
 import { promisify } from "util";
+import fs from "fs/promises";
+import { z } from "zod";
+import path from "path";
+import os from "os";
 
-// Path to the Claude desktop config file
 const CLAUDE_CONFIG_PATH = path.join(
   os.homedir(),
   "Library/Application Support/Claude/claude_desktop_config.json"
 );
 
-// Path where our server and generated servers will live
 const CURRENT_DIR = import.meta.url
   ? path.dirname(new URL(import.meta.url).pathname)
   : __dirname;
 
 const SERVERS_DIR = path.join(CURRENT_DIR, "servers");
 
-// TypeScript SDK information
 const TYPESCRIPT_SDK_URL =
   "https://github.com/modelcontextprotocol/typescript-sdk";
 
 const TYPESCRIPT_SDK_README_URL =
   "https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/main/README.md";
 
-// Initialize our MCP server
 const server = new McpServer({
   name: "MCP Server Creator",
   version: "1.0.0",
@@ -41,7 +34,6 @@ const server = new McpServer({
 
 const execAsync = promisify(exec);
 
-// Add resources for template and SDK info
 server.resource("template", "mcp-template://default", async (uri) => ({
   contents: [
     {
@@ -60,12 +52,12 @@ server.prompt("system prompt", {}, () => ({
         text: `# MCP Server Creator Assistant
 
 ## YOUR ROLE AND BEHAVIOR
-- You are an expert TypeScript developer specializing in MCP (Model Context Protocol) servers
+- You are an expert JavaScript developer specializing in MCP (Model Context Protocol) servers
 - Be friendly and confident in your responses, starting with a brief greeting
 - Explain your process step-by-step to help users understand what you're doing
 - Make decisions autonomously without asking for additional input when possible
 - Favor creating complete, working solutions rather than partial examples
-- Write clean, modern TypeScript code with proper error handling and comments
+- Write clean, modern JavaScript code with proper error handling and comments
 - Always use ES modules (import/export) syntax, not CommonJS (require)
 
 ## SCENARIOS
@@ -86,7 +78,7 @@ When a user asks for a new MCP server:
 6. Register the server with Claude Desktop
 
 ### SCENARIO 2: UPDATING AN EXISTING MCP SERVER
-When a user wants to update an existing server:
+When a user wants to update an existing server or if there is already a server with same functionality:
 1. Use listServers to show available servers
 2. Retrieve the current code with getServerContent
 3. Analyze the existing structure before making changes
@@ -117,10 +109,12 @@ When a user wants to update an existing server:
 - listServers: To show available servers
 - getServerContent: To retrieve existing server code
 - getTemplate: To see example MCP server structure
-- createServer: To save a new server and register with Claude
+- createMcpServer: To save a new server and register with Claude
 - updateServer: To modify an existing server
 - analyzeServerDependencies: To identify required packages
 - installServerDependencies: To install npm packages
+- getClaudeConfig: To get the current Claude Desktop configuration
+- updateClaudeConfig: To update the Claude Desktop configuration
 
 After creating or updating a server, provide a brief summary of what the server does and how to use it. Do not forget to restart Claude Desktop after updating the server.`,
       },
@@ -130,10 +124,8 @@ After creating or updating a server, provide a brief summary of what the server 
 
 server.resource("sdk-info", "mcp-docs://typescript-sdk", async (uri) => {
   try {
-    // Dynamically import node-fetch
     const { default: fetch } = await import("node-fetch");
 
-    // Fetch the README content from the raw GitHub URL
     const response = await fetch(TYPESCRIPT_SDK_README_URL);
 
     if (!response.ok) {
@@ -142,10 +134,8 @@ server.resource("sdk-info", "mcp-docs://typescript-sdk", async (uri) => {
       );
     }
 
-    // Get the README content
     const readmeContent = await response.text();
 
-    // Add a header with link to the repository
     const contentWithHeader = `# TypeScript SDK for Model Context Protocol
 
     Retrieved from: ${TYPESCRIPT_SDK_README_URL}
@@ -207,33 +197,24 @@ server.tool("listServers", {}, async () => {
   }
 });
 
-// Tool to create a new MCP server or update an existing one
 server.tool(
   "createMcpServer",
   {
     serverName: z.string().min(1),
     serverCode: z.string().min(1),
     registerWithClaude: z.boolean().default(true),
-    overwriteExisting: z
-      .boolean()
-      .default(false)
-      .describe("Whether to overwrite an existing server with the same name"),
   },
-  async ({ serverName, serverCode, registerWithClaude, overwriteExisting }) => {
+  async ({ serverName, serverCode, registerWithClaude }) => {
     try {
-      // Make sure the servers directory exists
       await fs.mkdir(SERVERS_DIR, { recursive: true });
 
-      // Sanitize the server name for use as a filename
       const sanitizedName = serverName.replace(/[^a-zA-Z0-9-_]/g, "_");
       const filename = `${sanitizedName}.js`;
       const filePath = path.join(SERVERS_DIR, filename);
 
-      // Check if the server already exists
       const exists = await fileExists(filePath);
 
-      // Handle existing server case
-      if (exists && !overwriteExisting) {
+      if (exists) {
         return {
           content: [
             {
@@ -245,10 +226,8 @@ server.tool(
         };
       }
 
-      // Write the server file (no backup)
       await fs.writeFile(filePath, serverCode);
 
-      // Register with Claude Desktop config if requested
       let registrationMessage = "";
       if (registerWithClaude) {
         try {
@@ -263,12 +242,11 @@ server.tool(
         }
       }
 
-      const action = exists ? "updated" : "created";
       return {
         content: [
           {
             type: "text",
-            text: `Successfully ${action} JavaScript MCP server "${serverName}" at ${filePath}.\n${registrationMessage}`,
+            text: `Successfully created JavaScript MCP server "${serverName}" at ${filePath}.\n${registrationMessage}`,
           },
         ],
       };
@@ -277,7 +255,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `Error creating/updating server: ${
+            text: `Error creating server: ${
               error instanceof Error ? error.message : String(error)
             }`,
           },
@@ -288,9 +266,6 @@ server.tool(
   }
 );
 
-// Tool to list all created servers
-
-// Tool to get Claude desktop config
 server.tool("getClaudeConfig", {}, async () => {
   try {
     const configExists = await fileExists(CLAUDE_CONFIG_PATH);
@@ -329,7 +304,6 @@ server.tool("getClaudeConfig", {}, async () => {
   }
 });
 
-// Tool to update Claude desktop config
 server.tool(
   "updateClaudeConfig",
   {
@@ -337,7 +311,6 @@ server.tool(
   },
   async ({ configData }) => {
     try {
-      // Validate the config is valid JSON
       JSON.parse(configData);
 
       await fs.writeFile(CLAUDE_CONFIG_PATH, configData);
@@ -366,7 +339,6 @@ server.tool(
   }
 );
 
-// Tool to provide help
 server.tool("getHelp", {}, async () => {
   return {
     content: [
@@ -385,15 +357,14 @@ Available tools:
 2. getTemplate
    - Returns an example MCP server template to help guide development
    
-3. createServer
+3. createMcpServer
    - Creates a new JavaScript MCP server or updates an existing one
    - Parameters:
      - serverName: Name of your server (used for the filename)
      - serverCode: The complete JavaScript code for your server
      - registerWithClaude: Whether to register with Claude Desktop (default: true)
-     - overwriteExisting: Whether to overwrite an existing server (default: false)
    
-4. updateServer
+4. updateMcpServer
    - Updates an existing JavaScript MCP server directly
    - Parameters:
      - serverName: Name of the server to update
@@ -429,17 +400,16 @@ Available tools:
    - Shows this help message
 
 Workflow for creating a new server:
-3. Ask to create a custom server for your needs
-4. Use createServer to save the server and register it with Claude Desktop
-5. Use analyzeServerDependencies to detect required packages
-6. Use installServerDependencies to install the required packages
-7. To make changes later, use updateServer or createServer with overwriteExisting=true
+1. Ask to create a custom server for your needs
+2. Use createMcpServer to save the server and register it with Claude Desktop
+3. Use analyzeServerDependencies to detect required packages
+4. Use installServerDependencies to install the required packages
 
 Workflow for updating servers:
 1. Use listServers to find the exact name of the server you want to update
 2. Use getServerContent with the exact server name to retrieve its current code
 3. Make your modifications to the code
-4. Use updateServer with the server name and modified code to save changes
+4. Use updateMcpServer with the server name and modified code to save changes
 5. If you added new dependencies, use analyzeServerDependencies and installServerDependencies
 `,
       },
@@ -447,21 +417,18 @@ Workflow for updating servers:
   };
 });
 
-// Tool to update an existing MCP server
 server.tool(
-  "updateServer",
+  "updateMcpServer",
   {
     serverName: z.string().min(1),
     serverCode: z.string().min(1),
   },
   async ({ serverName, serverCode }) => {
     try {
-      // Strip .js extension if it's already included in the serverName
       const nameWithoutExtension = serverName.endsWith(".js")
         ? serverName.slice(0, -3)
         : serverName;
 
-      // Sanitize the server name for use as a filename
       const sanitizedName = nameWithoutExtension.replace(
         /[^a-zA-Z0-9-_]/g,
         "_"
@@ -469,7 +436,6 @@ server.tool(
       const filename = `${sanitizedName}.js`;
       const filePath = path.join(SERVERS_DIR, filename);
 
-      // Check if the server exists
       const exists = await fileExists(filePath);
       if (!exists) {
         return {
@@ -483,13 +449,6 @@ server.tool(
         };
       }
 
-      // Read the existing file content before updating
-      const existingCode = await fs.readFile(filePath, "utf-8");
-      console.log(
-        `Reading existing code for ${nameWithoutExtension} before update`
-      );
-
-      // Update the server file
       await fs.writeFile(filePath, serverCode);
 
       return {
@@ -516,9 +475,6 @@ server.tool(
   }
 );
 
-// Add a new tool to handle partial updates
-
-// Tool to get the content of an existing MCP server
 server.tool(
   "getServerContent",
   {
@@ -526,12 +482,10 @@ server.tool(
   },
   async ({ serverName }) => {
     try {
-      // Strip .js extension if it's already included in the serverName
       const nameWithoutExtension = serverName.endsWith(".js")
         ? serverName.slice(0, -3)
         : serverName;
 
-      // Sanitize the server name for use as a filename
       const sanitizedName = nameWithoutExtension.replace(
         /[^a-zA-Z0-9-_]/g,
         "_"
@@ -539,7 +493,6 @@ server.tool(
       const filename = `${sanitizedName}.js`;
       const filePath = path.join(SERVERS_DIR, filename);
 
-      // Check if the server exists
       const exists = await fileExists(filePath);
       if (!exists) {
         return {
@@ -553,7 +506,6 @@ server.tool(
         };
       }
 
-      // Read the server file content
       const serverCode = await fs.readFile(filePath, "utf-8");
 
       return {
@@ -580,7 +532,6 @@ server.tool(
   }
 );
 
-// Tool to install dependencies for a server
 server.tool(
   "installServerDependencies",
   {
@@ -589,7 +540,6 @@ server.tool(
       .describe("List of npm packages to install"),
   },
   async ({ dependencies }) => {
-    // Use stderr for logging to avoid interfering with MCP protocol on stdout
     const log = (msg: string) =>
       process.stderr.write(`[installServerDependencies] ${msg}\n`);
 
@@ -609,21 +559,16 @@ server.tool(
       const dependencyString = dependencies.join(" ");
       log(`Installing dependencies: ${dependencyString}`);
 
-      // Get current directory for logging
       const currentDir = process.cwd();
       log(`Current working directory: ${currentDir}`);
 
-      // Get project directory - use CURRENT_DIR from the top of the file
-      // which is defined based on import.meta.url
       const projectDir = CURRENT_DIR;
       log(`Project directory: ${projectDir}`);
 
-      // Create a completely isolated environment for npm
       const tempDir = path.join(os.tmpdir(), `mcp-npm-${Date.now()}`);
       await fs.mkdir(tempDir, { recursive: true });
       log(`Created temporary directory: ${tempDir}`);
 
-      // Create a minimal package.json in the temp directory
       const packageJson = {
         name: "mcp-temp-install",
         version: "1.0.0",
@@ -635,20 +580,15 @@ server.tool(
         JSON.stringify(packageJson, null, 2)
       );
 
-      log(`Created temporary package.json`);
-
       try {
-        // Change to the temp directory for installation
         const originalDir = process.cwd();
         process.chdir(tempDir);
         log(`Changed working directory to: ${tempDir}`);
 
-        // Install dependencies in the temp directory
         const { stdout, stderr } = await execAsync(
           `npm install ${dependencyString} --no-package-lock --no-audit --no-fund`
         );
 
-        // Return to original directory
         process.chdir(originalDir);
         log(`Returned to working directory: ${originalDir}`);
 
@@ -658,14 +598,12 @@ server.tool(
 
         log(`Installation stdout: ${stdout}`);
 
-        // Create node_modules in the project directory if it doesn't exist
         const projectNodeModules = path.join(projectDir, "node_modules");
         log(`Project node_modules path: ${projectNodeModules}`);
         await fs.mkdir(projectNodeModules, { recursive: true });
 
-        // For each dependency, copy its folder from temp node_modules to project node_modules
         for (const dep of dependencies) {
-          const baseDep = dep.split("@")[0]; // Handle version specifiers
+          const baseDep = dep.split("@")[0];
           const srcPath = path.join(tempDir, "node_modules", baseDep);
           const destPath = path.join(projectNodeModules, baseDep);
 
@@ -956,19 +894,15 @@ server.tool(
   }
 );
 
-// Connect the server
 const transport = new StdioServerTransport();
 server.connect(transport);
 
-// Utility function to register a server with Claude Desktop
 async function registerServerWithClaude(
   serverName: string,
   serverPath: string
 ): Promise<string> {
-  // Check if config file exists
   const configExists = await fileExists(CLAUDE_CONFIG_PATH);
 
-  // Create default config if it doesn't exist
   if (!configExists) {
     await fs.writeFile(
       CLAUDE_CONFIG_PATH,
@@ -976,28 +910,23 @@ async function registerServerWithClaude(
     );
   }
 
-  // Read the current config
   const configData = await fs.readFile(CLAUDE_CONFIG_PATH, "utf-8");
   const config = JSON.parse(configData);
 
-  // Ensure mcpServers section exists
   if (!config.mcpServers) {
     config.mcpServers = {};
   }
 
-  // Add the new server
   config.mcpServers[serverName] = {
     command: "node",
     args: [serverPath],
   };
 
-  // Write the updated config
   await fs.writeFile(CLAUDE_CONFIG_PATH, JSON.stringify(config, null, 2));
 
   return `Server registered with Claude Desktop as "${serverName}".`;
 }
 
-// Utility function to check if a file exists
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
