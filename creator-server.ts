@@ -1,7 +1,7 @@
 // creator-server.ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { TEMPLATE_MCP_SERVER } from "./template.js";
+import { TEMPLATE_MCP_SERVER } from "./template.ts";
 import { exec } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
@@ -69,8 +69,8 @@ When a user asks for a new MCP server:
 3. Include all essential components:
    - Proper imports from "@modelcontextprotocol/sdk/server/mcp.js"
    - Server definition with meaningful name, version, and description
-   - Well-designed tools with proper parameter validation using Zod
    - Resources for static/dynamic data when appropriate
+   - Well-designed tools with proper parameter validation using Zod
    - Prompts if the server needs to guide LLM interactions
    - Connection setup with StdioServerTransport
 4. Automatically identify necessary npm dependencies
@@ -98,12 +98,15 @@ When a user wants to update an existing server or if there is already a server w
 
 ## HANDLING API KEYS AND AUTHENTICATION
 - If an API requires authentication, explain this requirement to the user
-- Design the server to accept API keys as tool parameters, never hardcoded
-- Create clear validation for API key parameters (using z.string().min(1))
-- Explain to users that they'll need to provide their own API key when using the server
+- API keys should ALWAYS be handled using environment variables loaded from a .env file
+- The .env file should be located at the project root (same level as the servers folder)
+- Include the dotenv package to load environment variables
+- Add clear validation for environment variables and helpful error messages if they're missing
+- Explain to users that they need to manually create or edit the .env file with their API keys
+- Provide the exact environment variable names the user needs to add to their .env file
 - For services that offer free tiers or trials, mention this and provide signup links
 - When possible, suggest free/open alternatives that don't require authentication
-- NEVER store API keys in the server code itself - always require them as parameters
+- NEVER store API keys in the server code itself
 
 ## TOOLS TO USE
 - listServers: To show available servers
@@ -116,7 +119,11 @@ When a user wants to update an existing server or if there is already a server w
 - getClaudeConfig: To get the current Claude Desktop configuration
 - updateClaudeConfig: To update the Claude Desktop configuration
 
-After creating or updating a server, provide a brief summary of what the server does and how to use it. Do not forget to restart Claude Desktop after updating the server.`,
+After creating or updating a server, provide a brief summary of what the server does and how to use it. Remind users to:
+1. Manually create or edit the .env file in the project root with their API keys
+2. Make sure dotenv is installed (npm install dotenv)
+3. Restart Claude Desktop after updating the server to apply changes
+4. Format of .env file entries should be: KEY=value (no quotes)`,
       },
     },
   ],
@@ -541,7 +548,7 @@ server.tool(
   },
   async ({ dependencies }) => {
     const log = (msg: string) =>
-      process.stderr.write(`[installServerDependencies] ${msg}\n`);
+      process.stdout.write(`[installServerDependencies] ${msg}\n`);
 
     try {
       if (!dependencies || dependencies.length === 0) {
@@ -556,8 +563,7 @@ server.tool(
         };
       }
 
-      const dependencyString = dependencies.join(" ");
-      log(`Installing dependencies: ${dependencyString}`);
+      let dependencyString = "";
 
       const currentDir = process.cwd();
       log(`Current working directory: ${currentDir}`);
@@ -569,7 +575,52 @@ server.tool(
       await fs.mkdir(tempDir, { recursive: true });
       log(`Created temporary directory: ${tempDir}`);
 
-      const packageJson = {
+      const projectPackageJsonPath = path.join(projectDir, "package.json");
+
+      const projectPackageJsonStr = await fs.readFile(
+        projectPackageJsonPath,
+        "utf-8"
+      );
+
+      let projectPackageJson;
+
+      try {
+        projectPackageJson = JSON.parse(projectPackageJsonStr);
+      } catch (err) {
+        log(`Could not parse project package.json, creating a new one`);
+        projectPackageJson = {
+          name: "mcp-project",
+          version: "1.0.0",
+          type: "module",
+          dependencies: {},
+        };
+      }
+
+      if (!projectPackageJson.dependencies) {
+        projectPackageJson.dependencies = {};
+      }
+
+      const projectPackageDependencies = projectPackageJson.dependencies;
+
+      const NonExistingDependencies = dependencies.filter(
+        (dep) => !projectPackageDependencies[dep]
+      );
+
+      if (NonExistingDependencies.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `All dependencies are already installed.`,
+            },
+          ],
+          isError: false,
+        };
+      } else {
+        dependencyString = NonExistingDependencies.join(" ");
+      }
+
+      const tempPackageJson = {
         name: "mcp-temp-install",
         version: "1.0.0",
         private: true,
@@ -577,7 +628,7 @@ server.tool(
 
       await fs.writeFile(
         path.join(tempDir, "package.json"),
-        JSON.stringify(packageJson, null, 2)
+        JSON.stringify(tempPackageJson, null, 2)
       );
 
       try {
@@ -602,7 +653,7 @@ server.tool(
         log(`Project node_modules path: ${projectNodeModules}`);
         await fs.mkdir(projectNodeModules, { recursive: true });
 
-        for (const dep of dependencies) {
+        for (const dep of NonExistingDependencies) {
           const baseDep = dep.split("@")[0];
           const srcPath = path.join(tempDir, "node_modules", baseDep);
           const destPath = path.join(projectNodeModules, baseDep);
@@ -636,7 +687,7 @@ server.tool(
 
         // Update the package.json file with the new dependencies
         log(`Updating package.json with new dependencies`);
-        const projectPackageJsonPath = path.join(projectDir, "package.json");
+        //const projectPackageJsonPath = path.join(projectDir, "package.json");
         try {
           // Read the package.json from the temp directory to get the installed versions
           const tempPackageJsonPath = path.join(tempDir, "package.json");
@@ -650,31 +701,32 @@ server.tool(
           const installedDeps = tempPackageJson.dependencies || {};
 
           // Read the project's package.json
-          let projectPackageJson;
-          try {
-            const projectPackageJsonStr = await fs.readFile(
-              projectPackageJsonPath,
-              "utf-8"
-            );
-            projectPackageJson = JSON.parse(projectPackageJsonStr);
-          } catch (err) {
-            log(`Could not read project package.json, creating a new one`);
-            projectPackageJson = {
-              name: "mcp-project",
-              version: "1.0.0",
-              type: "module",
-              dependencies: {},
-            };
-          }
+          // let projectPackageJson;
+          // try {
+          //   const projectPackageJsonStr = await fs.readFile(
+          //     projectPackageJsonPath,
+          //     "utf-8"
+          //   );
+          //   projectPackageJson = JSON.parse(projectPackageJsonStr);
+          //   projectPackageJson = projectPackageJsonStr;
+          // } catch (err) {
+          //   log(`Could not read project package.json, creating a new one`);
+          //   projectPackageJson = {
+          //     name: "mcp-project",
+          //     version: "1.0.0",
+          //     type: "module",
+          //     dependencies: {},
+          //   };
+          // }
 
           // Ensure dependencies section exists
-          if (!projectPackageJson.dependencies) {
-            projectPackageJson.dependencies = {};
-          }
+          // if (!projectPackageJson.dependencies) {
+          //   projectPackageJson.dependencies = {};
+          // }
 
           // Add the new dependencies with their versions
           let dependenciesAdded = false;
-          for (const dep of dependencies) {
+          for (const dep of NonExistingDependencies) {
             const baseDep = dep.split("@")[0]; // Handle version specifiers
             if (installedDeps[baseDep]) {
               projectPackageJson.dependencies[baseDep] = installedDeps[baseDep];
@@ -730,7 +782,6 @@ server.tool(
           isError: true,
         };
       } finally {
-        // Clean up temporary directory
         try {
           await fs.rm(tempDir, { recursive: true, force: true });
           log(`Cleaned up temporary directory`);

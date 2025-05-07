@@ -6,6 +6,11 @@ export const TEMPLATE_MCP_SERVER = `
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import * as dotenv from "dotenv";
+import path from "path";
+
+// Load environment variables from .env file (located at project root)
+dotenv.config();
 
 // Initialize the MCP server with metadata
 const server = new McpServer({
@@ -13,6 +18,15 @@ const server = new McpServer({
   version: "1.0.0",
   description: "An example MCP server showing basic structure"
 });
+
+// Example of accessing an API key from environment variables
+const API_KEY = process.env.EXAMPLE_API_KEY;
+
+// Display warning if required environment variable is missing
+if (!API_KEY) {
+  console.warn("Warning: EXAMPLE_API_KEY environment variable is not set.");
+  console.warn("Please add EXAMPLE_API_KEY=your_api_key to your .env file in the project root.");
+}
 
 // Add a tool capability - tools let AI perform actions
 server.tool(
@@ -28,21 +42,46 @@ server.tool(
 );
 
 // Add a resource capability - resources let AI access data
-// This is an example of a simple resource template
-/*
+// This uses the API key from environment variables
 server.resource(
-  "exampleResource",
-  new ResourceTemplate("example://{id}", { list: true }),
-  async (uri, { id }) => {
-    return {
-      contents: [{
-        uri: uri.href,
-        text: \`This is resource \${id}\`
-      }]
-    };
+  "exampleApiResource",  // resource name
+  "example-api://{path}",  // URI template (no need for apiKey in URL)
+  async (uri, params) => {
+    const { path } = params;
+    
+    // Validate API key from environment variable
+    if (!API_KEY) {
+      return {
+        contents: [{
+          uri: uri.href,
+          text: "Error: API key is not configured in environment variables. Please add EXAMPLE_API_KEY to your .env file in the project root."
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      // Example of using the API key from environment variables to fetch data
+      // In a real implementation, you would use the API key to authenticate
+      // with an external service and fetch the requested data
+      
+      return {
+        contents: [{
+          uri: uri.href,
+          text: \`Successfully fetched data for \${path} using the API key from environment variables\`
+        }]
+      };
+    } catch (error) {
+      return {
+        contents: [{
+          uri: uri.href,
+          text: \`Error fetching data: \${error instanceof Error ? error.message : String(error)}\`
+        }],
+        isError: true
+      };
+    }
   }
 );
-*/
 
 // Connect the server to the stdio transport
 const transport = new StdioServerTransport();
