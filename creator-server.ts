@@ -76,6 +76,7 @@ When a user asks for a new MCP server:
 4. Automatically identify necessary npm dependencies
 5. Install dependencies using the installServerDependencies tool
 6. Register the server with Claude Desktop
+7. Update the Claude Desktop config to include any required environment variables
 
 ### SCENARIO 2: UPDATING AN EXISTING MCP SERVER
 When a user wants to update an existing server or if there is already a server with same functionality:
@@ -85,7 +86,8 @@ When a user wants to update an existing server or if there is already a server w
 4. Preserve existing functionality while adding new features
 5. Follow the same code standards as the original
 6. Install any new dependencies needed
-7. Clearly explain what changes you made
+7. Update the Claude Desktop config if new environment variables are needed
+8. Clearly explain what changes you made
 
 ## CODE IMPLEMENTATION REQUIREMENTS
 - All servers must use the TypeScript SDK
@@ -98,12 +100,11 @@ When a user wants to update an existing server or if there is already a server w
 
 ## HANDLING API KEYS AND AUTHENTICATION
 - If an API requires authentication, explain this requirement to the user
-- API keys should ALWAYS be handled using environment variables loaded from a .env file
-- The .env file should be located at the project root (same level as the servers folder)
-- Include the dotenv package to load environment variables
+- API keys should ALWAYS be handled using environment variables configured in the Claude Desktop config
+- When registering a server that requires API keys, update the Claude config to include placeholders for these keys
+- In your code, access API keys using process.env.KEY_NAME
 - Add clear validation for environment variables and helpful error messages if they're missing
-- Explain to users that they need to manually create or edit the .env file with their API keys
-- Provide the exact environment variable names the user needs to add to their .env file
+- Clearly tell users which environment variables they need to set in the Claude Desktop config
 - For services that offer free tiers or trials, mention this and provide signup links
 - When possible, suggest free/open alternatives that don't require authentication
 - NEVER store API keys in the server code itself
@@ -117,13 +118,28 @@ When a user wants to update an existing server or if there is already a server w
 - analyzeServerDependencies: To identify required packages
 - installServerDependencies: To install npm packages
 - getClaudeConfig: To get the current Claude Desktop configuration
-- updateClaudeConfig: To update the Claude Desktop configuration
+- updateClaudeConfig: To update the Claude Desktop configuration with any environment variables needed
 
 After creating or updating a server, provide a brief summary of what the server does and how to use it. Remind users to:
-1. Manually create or edit the .env file in the project root with their API keys
-2. Make sure dotenv is installed (npm install dotenv)
-3. Restart Claude Desktop after updating the server to apply changes
-4. Format of .env file entries should be: KEY=value (no quotes)`,
+1. Edit their Claude Desktop config to add actual API keys (replacing any placeholders)
+2. Install any required npm dependencies
+3. Restart Claude Desktop after updating the server and config to apply changes
+
+When explaining how to update the Claude Desktop config for environment variables, provide a specific example that shows the proper structure:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "yourServerName": {
+      "command": "node",
+      "args": ["/path/to/your/server.js"],
+      "env": {
+        "YOUR_API_KEY": "actual-api-key-value-here"
+      }
+    }
+  }
+}
+\`\`\``,
       },
     },
   ],
@@ -399,9 +415,9 @@ Available tools:
      - serverName: Name of the server to analyze
 
 10. installServerDependencies
-   - Installs npm packages required by a server
-   - Parameters:
-     - dependencies: Array of package names to install
+    - Installs npm packages required by a server
+    - Parameters:
+      - dependencies: Array of package names to install
      
 11. getHelp
    - Shows this help message
@@ -968,9 +984,11 @@ async function registerServerWithClaude(
     config.mcpServers = {};
   }
 
+  // Create server entry with command, args, and empty env object for future environment variables
   config.mcpServers[serverName] = {
     command: "node",
     args: [serverPath],
+    env: {},
   };
 
   await fs.writeFile(CLAUDE_CONFIG_PATH, JSON.stringify(config, null, 2));

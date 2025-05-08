@@ -6,11 +6,6 @@ export const TEMPLATE_MCP_SERVER = `
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import * as dotenv from "dotenv";
-import path from "path";
-
-// Load environment variables from .env file (located at project root)
-dotenv.config();
 
 // Initialize the MCP server with metadata
 const server = new McpServer({
@@ -20,12 +15,13 @@ const server = new McpServer({
 });
 
 // Example of accessing an API key from environment variables
+// These should be configured in the Claude Desktop config
 const API_KEY = process.env.EXAMPLE_API_KEY;
 
 // Display warning if required environment variable is missing
 if (!API_KEY) {
   console.warn("Warning: EXAMPLE_API_KEY environment variable is not set.");
-  console.warn("Please add EXAMPLE_API_KEY=your_api_key to your .env file in the project root.");
+  console.warn("Please configure this in the Claude Desktop config.");
 }
 
 // Add a tool capability - tools let AI perform actions
@@ -54,7 +50,7 @@ server.resource(
       return {
         contents: [{
           uri: uri.href,
-          text: "Error: API key is not configured in environment variables. Please add EXAMPLE_API_KEY to your .env file in the project root."
+          text: "Error: API key is not configured in environment variables. Please add EXAMPLE_API_KEY to your Claude Desktop config."
         }],
         isError: true
       };
