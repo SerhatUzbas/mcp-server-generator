@@ -81,13 +81,20 @@ When a user asks for a new MCP server:
 ### SCENARIO 2: UPDATING AN EXISTING MCP SERVER
 When a user wants to update an existing server or if there is already a server with same functionality:
 1. Use listServers to show available servers
-2. Retrieve the current code with getServerContent
+2. Retrieve the current code with getServerContent, which will display the code with line numbers
 3. Analyze the existing structure before making changes
-4. Preserve existing functionality while adding new features
-5. Follow the same code standards as the original
-6. Install any new dependencies needed
-7. Update the Claude Desktop config if new environment variables are needed
-8. Clearly explain what changes you made
+4. For updates, prefer focused, targeted changes over complete rewrites:
+   - Use updateServer with updateType="section" to modify specific parts
+   - Use updateServer with updateType="add" to insert new functionality
+   - Only use updateServer with updateType="full" when extensive changes are needed
+5. When using updateServer with "section" or "add" types:
+   - ALWAYS refer to the exact line numbers shown in getServerContent output
+   - Double-check that your start/end lines match the correct sections of code
+   - Validate that insertAfterLine is the exact line where you want to insert code
+6. Follow the same code standards as the original
+7. Install any new dependencies needed
+8. Explain how to update the Claude Desktop config if new environment variables are needed
+9. Clearly explain what changes you made
 
 ## CODE IMPLEMENTATION REQUIREMENTS
 - All servers must use the TypeScript SDK
@@ -101,7 +108,7 @@ When a user wants to update an existing server or if there is already a server w
 ## HANDLING API KEYS AND AUTHENTICATION
 - If an API requires authentication, explain this requirement to the user
 - API keys should ALWAYS be handled using environment variables configured in the Claude Desktop config
-- When registering a server that requires API keys, update the Claude config to include placeholders for these keys
+- When registering a server that requires API keys, clearly explain what environment variables need to be set in the Claude config
 - In your code, access API keys using process.env.KEY_NAME
 - Add clear validation for environment variables and helpful error messages if they're missing
 - Clearly tell users which environment variables they need to set in the Claude Desktop config
@@ -111,17 +118,17 @@ When a user wants to update an existing server or if there is already a server w
 
 ## TOOLS TO USE
 - listServers: To show available servers
-- getServerContent: To retrieve existing server code
+- getServerContent: To retrieve existing server code with line numbers
 - getTemplate: To see example MCP server structure
 - createMcpServer: To save a new server and register with Claude
-- updateServer: To modify an existing server
+- updateMcpServer: To update an existing server (full rewrite, section update, or add code)
 - analyzeServerDependencies: To identify required packages
 - installServerDependencies: To install npm packages
 - getClaudeConfig: To get the current Claude Desktop configuration
 - updateClaudeConfig: To update the Claude Desktop configuration with any environment variables needed
 
 After creating or updating a server, provide a brief summary of what the server does and how to use it. Remind users to:
-1. Edit their Claude Desktop config to add actual API keys (replacing any placeholders)
+1. Update their Claude Desktop config to add actual API keys if needed
 2. Install any required npm dependencies
 3. Restart Claude Desktop after updating the server and config to apply changes
 
@@ -242,7 +249,7 @@ server.tool(
           content: [
             {
               type: "text",
-              text: `Error: Server "${serverName}" already exists at ${filePath}. Use 'updateServer' to update it, or set 'overwriteExisting' to true to replace it.`,
+              text: `Error: Server "${serverName}" already exists at ${filePath}. Use 'updateMcpServer' to update it, or set 'overwriteExisting' to true to replace it.`,
             },
           ],
           isError: true,
@@ -381,33 +388,41 @@ Available tools:
    - Returns an example MCP server template to help guide development
    
 3. createMcpServer
-   - Creates a new JavaScript MCP server or updates an existing one
+   - Creates a new JavaScript MCP server and registers it with Claude Desktop
    - Parameters:
      - serverName: Name of your server (used for the filename)
      - serverCode: The complete JavaScript code for your server
      - registerWithClaude: Whether to register with Claude Desktop (default: true)
    
 4. updateMcpServer
-   - Updates an existing JavaScript MCP server directly
+   - Updates an existing MCP server with flexible options
    - Parameters:
      - serverName: Name of the server to update
-     - serverCode: The updated JavaScript code for your server
+     - updateType: "full" (replace entire file), "section" (replace specific lines), or "add" (add new code)
+     - startLine: First line to replace (required for "section" updates)
+     - endLine: Last line to replace (required for "section" updates)
+     - insertAfterLine: Line after which to insert code (required for "add" updates)
+     - code: The new code to add or replace
+     - description: Optional description of the changes
    
 5. listServers
    - Lists all servers created with this tool
    
 6. getClaudeConfig
    - Retrieves the current Claude Desktop configuration
+   - Use this to check the current config before making changes
    
 7. updateClaudeConfig
-   - Updates the Claude Desktop configuration file
+   - Updates the Claude Desktop configuration file, including environment variables
    - Parameters:
      - configData: Complete JSON configuration
+   - Use this to add API keys and other environment variables your server needs
 
 8. getServerContent
-   - Retrieves the current content of a server file
+   - Retrieves the current content of a server file with line numbers
    - Parameters:
      - serverName: Name of the server to get content for
+   - Output includes line numbers for precise reference when updating
 
 9. analyzeServerDependencies
    - Analyzes a server file to detect npm dependencies
@@ -420,20 +435,36 @@ Available tools:
       - dependencies: Array of package names to install
      
 11. getHelp
-   - Shows this help message
+    - Shows this help message
 
 Workflow for creating a new server:
 1. Ask to create a custom server for your needs
 2. Use createMcpServer to save the server and register it with Claude Desktop
 3. Use analyzeServerDependencies to detect required packages
 4. Use installServerDependencies to install the required packages
+5. If needed, update the Claude Desktop config to add any required API keys
 
 Workflow for updating servers:
 1. Use listServers to find the exact name of the server you want to update
-2. Use getServerContent with the exact server name to retrieve its current code
-3. Make your modifications to the code
-4. Use updateMcpServer with the server name and modified code to save changes
+2. Use getServerContent with the exact server name to retrieve its current code with line numbers
+3. Review the code and note the EXACT line numbers from the output for the section you want to modify
+4. Choose the right update approach:
+   - For targeted changes: Use updateServer with updateType="section", providing the exact start and end lines
+   - For adding new functionality: Use updateServer with updateType="add", specifying the exact line after which to insert
+   - For complete rewrites: Use updateServer with updateType="full" (line numbers not needed)
 5. If you added new dependencies, use analyzeServerDependencies and installServerDependencies
+6. If you added new environment variables, update the Claude Desktop config
+
+IMPORTANT: When using "section" or "add" update types, always use the exact line numbers from the getServerContent output to ensure precise updates.
+
+Environment Variables in the Claude Desktop Config:
+- Environment variables are stored in the "env" object for each server
+- They're accessible in your server code via process.env.KEY
+- Example:
+  "env": {
+    "OPENAI_API_KEY": "sk-abcdef123456",
+    "WEATHER_API_KEY": "98765abcdef"
+  }
 `,
       },
     ],
@@ -444,9 +475,22 @@ server.tool(
   "updateMcpServer",
   {
     serverName: z.string().min(1),
-    serverCode: z.string().min(1),
+    updateType: z.enum(["full", "section", "add"]),
+    startLine: z.number().int().positive().optional(),
+    endLine: z.number().int().positive().optional(),
+    insertAfterLine: z.number().int().positive().optional(),
+    code: z.string().min(1),
+    description: z.string().optional(),
   },
-  async ({ serverName, serverCode }) => {
+  async ({
+    serverName,
+    updateType,
+    startLine,
+    endLine,
+    insertAfterLine,
+    code,
+    description,
+  }) => {
     try {
       const nameWithoutExtension = serverName.endsWith(".js")
         ? serverName.slice(0, -3)
@@ -465,22 +509,170 @@ server.tool(
           content: [
             {
               type: "text",
-              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers, then use 'createServer' to create a new server if needed.`,
+              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`,
             },
           ],
           isError: true,
         };
       }
 
-      await fs.writeFile(filePath, serverCode);
+      // For full update, just replace the entire file
+      if (updateType === "full") {
+        await fs.writeFile(filePath, code);
 
+        const updateDetails = description
+          ? `\nUpdate details: ${description}`
+          : "";
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Successfully updated entire MCP server "${nameWithoutExtension}".${updateDetails}`,
+            },
+          ],
+        };
+      }
+
+      // For section or add updates, read the current file
+      const serverCode = await fs.readFile(filePath, "utf-8");
+      const lines = serverCode.split("\n");
+
+      // Handle section update
+      if (updateType === "section") {
+        if (!startLine || !endLine) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: When using updateType "section", both startLine and endLine must be provided.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Validate line numbers
+        if (startLine > lines.length || endLine > lines.length) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: Line numbers out of range. The file has ${lines.length} lines, but you specified lines ${startLine}-${endLine}.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        if (startLine > endLine) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: Start line (${startLine}) cannot be greater than end line (${endLine}).`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Split the new code into lines
+        const newLines = code.split("\n");
+
+        // Replace the specified section with the new code
+        const updatedLines = [
+          ...lines.slice(0, startLine - 1),
+          ...newLines,
+          ...lines.slice(endLine),
+        ];
+
+        // Join the lines back together
+        const updatedCode = updatedLines.join("\n");
+
+        // Write the updated code back to the file
+        await fs.writeFile(filePath, updatedCode);
+
+        const updateDetails = description
+          ? `\nUpdate details: ${description}`
+          : "";
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Successfully updated lines ${startLine}-${endLine} of MCP server "${nameWithoutExtension}".${updateDetails}`,
+            },
+          ],
+        };
+      }
+
+      // Handle add update
+      if (updateType === "add") {
+        if (!insertAfterLine) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: When using updateType "add", insertAfterLine must be provided.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Validate line number
+        if (insertAfterLine > lines.length) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: Line number out of range. The file has ${lines.length} lines, but you specified to insert after line ${insertAfterLine}.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Split the new code into lines
+        const newLines = code.split("\n");
+
+        // Insert the new code after the specified line
+        const updatedLines = [
+          ...lines.slice(0, insertAfterLine),
+          ...newLines,
+          ...lines.slice(insertAfterLine),
+        ];
+
+        // Join the lines back together
+        const updatedCode = updatedLines.join("\n");
+
+        // Write the updated code back to the file
+        await fs.writeFile(filePath, updatedCode);
+
+        const updateDetails = description
+          ? `\nAddition details: ${description}`
+          : "";
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Successfully added new code after line ${insertAfterLine} of MCP server "${nameWithoutExtension}".${updateDetails}`,
+            },
+          ],
+        };
+      }
+
+      // This should never happen due to zod validation, but just in case
       return {
         content: [
           {
             type: "text",
-            text: `Successfully updated MCP server "${nameWithoutExtension}" at ${filePath}.`,
+            text: `Error: Invalid updateType "${updateType}". Must be one of: "full", "section", or "add".`,
           },
         ],
+        isError: true,
       };
     } catch (error) {
       return {
@@ -531,11 +723,18 @@ server.tool(
 
       const serverCode = await fs.readFile(filePath, "utf-8");
 
+      // Add line numbers to the code for better reference
+      const lines = serverCode.split("\n");
+      const numberedLines = lines.map(
+        (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
+      );
+      const numberedCode = numberedLines.join("\n");
+
       return {
         content: [
           {
             type: "text",
-            text: `Server "${nameWithoutExtension}" content:\n\n${serverCode}`,
+            text: `Server "${nameWithoutExtension}" content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${lines.length}`,
           },
         ],
       };
