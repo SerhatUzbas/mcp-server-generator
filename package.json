@@ -29,7 +29,12 @@
     "react": "^19.1.0",
     "uuid": "^11.1.0",
     "zod": "^3.22.4",
-    "dotenv": "^16.5.0"
+    "dotenv": "^16.5.0",
+    "technicalindicators": "^3.1.0",
+    "node-cache": "^5.1.2",
+    "cryptocompare": "^1.0.0",
+    "coingecko-api": "^1.0.10",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

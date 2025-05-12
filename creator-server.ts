@@ -78,16 +78,18 @@ When a user asks for a new MCP server:
 6. Register the server with Claude Desktop
 7. Update the Claude Desktop config to include any required environment variables
 
+IMPORTANT: Because of context window limits, you should always start with a minimal server that includes only essential components (resources, tools, prompts, etc).After creating the server, you can use the updateMcpServer tool to add more functionality.
+
 ### SCENARIO 2: UPDATING AN EXISTING MCP SERVER
 When a user wants to update an existing server or if there is already a server with same functionality:
 1. Use listServers to show available servers
 2. Retrieve the current code with getServerContent, which will display the code with line numbers
 3. Analyze the existing structure before making changes
 4. For updates, prefer focused, targeted changes over complete rewrites:
-   - Use updateServer with updateType="section" to modify specific parts
-   - Use updateServer with updateType="add" to insert new functionality
-   - Only use updateServer with updateType="full" when extensive changes are needed
-5. When using updateServer with "section" or "add" types:
+   - Use updateMcpServer with updateType="section" to modify specific parts
+   - Use updateMcpServer with updateType="add" to insert new functionality
+   - Only use updateMcpServer with updateType="full" when extensive changes are needed
+5. When using updateMcpServer with "section" or "add" types:
    - ALWAYS refer to the exact line numbers shown in getServerContent output
    - Double-check that your start/end lines match the correct sections of code
    - Validate that insertAfterLine is the exact line where you want to insert code
@@ -102,10 +104,24 @@ When a user wants to update an existing server or if there is already a server w
 - Every tool must use Zod validation for parameters
 - Include thorough error handling in async functions
 - Add descriptive comments for complex logic
-- Keep responses under 30,000 characters
+- Responses should be under 30,000 characters, because context window is 32,000 characters. If you need to add more, you can later use the updateMcpServer tool.
 - NO placeholder code - everything must be fully implemented
 
+## HANDLING CONTEXT WINDOW LIMITS
+- When creating a large server that might exceed the context window limit (32,000 characters):
+  - The server code is saved to disk IMMEDIATELY when createMcpServer is called
+  - This happens as the FIRST action, BEFORE any response is returned to you
+  - The code is saved to: [Project Directory]/servers/[serverName].js
+  - If the conversation is interrupted, the file is ALREADY safely stored on disk
+  - To continue working:
+    1. Start a new conversation
+    2. Verify the server was created with listServers
+    3. View the current code with getServerContent
+    4. Continue development with updateMcpServer
+  - This ensures that progress is never lost when hitting context limits
+
 ## HANDLING API KEYS AND AUTHENTICATION
+- If you use third party services, you should look for documentation on how to use them.
 - If an API requires authentication, explain this requirement to the user
 - API keys should ALWAYS be handled using environment variables configured in the Claude Desktop config
 - When registering a server that requires API keys, clearly explain what environment variables need to be set in the Claude config
@@ -249,14 +265,24 @@ server.tool(
           content: [
             {
               type: "text",
-              text: `Error: Server "${serverName}" already exists at ${filePath}. Use 'updateMcpServer' to update it, or set 'overwriteExisting' to true to replace it.`,
+              text: `Error: Server "${serverName}" already exists at ${filePath}. Use 'updateMcpServer' to update it.`,
             },
           ],
           isError: true,
         };
       }
 
+
+      // This is the critical step: We write the file to disk FIRST, before doing anything else.
+      // This ensures that even if the context window limit is reached during the conversation,
+      // the file has already been saved and can be accessed in a new conversation.
+      console.log(
+        `[createMcpServer] Writing server "${serverName}" to file: ${filePath}`
+      );
       await fs.writeFile(filePath, serverCode);
+      console.log(
+        `[createMcpServer] Server successfully saved to disk at: ${filePath}`
+      );
 
       let registrationMessage = "";
       if (registerWithClaude) {
@@ -270,13 +296,21 @@ server.tool(
             error instanceof Error ? error.message : String(error)
           }`;
         }
+          
       }
+
+      // Add line numbers to the code for better reference
+      const lines = serverCode.split("\n");
+      const numberedLines = lines.map(
+        (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
+      );
+      const numberedCode = numberedLines.join("\n");
 
       return {
         content: [
           {
             type: "text",
-            text: `Successfully created JavaScript MCP server "${serverName}" at ${filePath}.\n${registrationMessage}`,
+            text: `Successfully created JavaScript MCP server "${serverName}" at ${filePath}.\n${registrationMessage}\n\nServer content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${lines.length}\n\n*** IMPORTANT: Your server has ALREADY been saved to disk at ${filePath}. ***\nIf this conversation is interrupted due to context limits, you can start a new conversation and continue working on your server using updateMcpServer without losing any progress.`,
           },
         ],
       };
@@ -449,9 +483,9 @@ Workflow for updating servers:
 2. Use getServerContent with the exact server name to retrieve its current code with line numbers
 3. Review the code and note the EXACT line numbers from the output for the section you want to modify
 4. Choose the right update approach:
-   - For targeted changes: Use updateServer with updateType="section", providing the exact start and end lines
-   - For adding new functionality: Use updateServer with updateType="add", specifying the exact line after which to insert
-   - For complete rewrites: Use updateServer with updateType="full" (line numbers not needed)
+   - For targeted changes: Use updateMcpServer with updateType="section", providing the exact start and end lines
+   - For adding new functionality: Use updateMcpServer with updateType="add", specifying the exact line after which to insert
+   - For complete rewrites: Use updateMcpServer with updateType="full" (line numbers not needed)
 5. If you added new dependencies, use analyzeServerDependencies and installServerDependencies
 6. If you added new environment variables, update the Claude Desktop config
 
@@ -524,11 +558,18 @@ server.tool(
           ? `\nUpdate details: ${description}`
           : "";
 
+        // Add line numbers to the updated content
+        const updatedLines = code.split("\n");
+        const numberedLines = updatedLines.map(
+          (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
+        );
+        const numberedCode = numberedLines.join("\n");
+
         return {
           content: [
             {
               type: "text",
-              text: `Successfully updated entire MCP server "${nameWithoutExtension}".${updateDetails}`,
+              text: `Successfully updated entire MCP server "${nameWithoutExtension}".${updateDetails}\n\nUpdated file content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${updatedLines.length}`,
             },
           ],
         };
@@ -592,6 +633,12 @@ server.tool(
 
         // Write the updated code back to the file
         await fs.writeFile(filePath, updatedCode);
+        
+        // Add line numbers to the updated content
+        const numberedLines = updatedLines.map(
+          (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
+        );
+        const numberedCode = numberedLines.join("\n");
 
         const updateDetails = description
           ? `\nUpdate details: ${description}`
@@ -601,7 +648,7 @@ server.tool(
           content: [
             {
               type: "text",
-              text: `Successfully updated lines ${startLine}-${endLine} of MCP server "${nameWithoutExtension}".${updateDetails}`,
+              text: `Successfully updated lines ${startLine}-${endLine} of MCP server "${nameWithoutExtension}".${updateDetails}\n\nUpdated file content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${updatedLines.length}`,
             },
           ],
         };
@@ -649,6 +696,12 @@ server.tool(
 
         // Write the updated code back to the file
         await fs.writeFile(filePath, updatedCode);
+        
+        // Add line numbers to the updated content
+        const numberedLines = updatedLines.map(
+          (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
+        );
+        const numberedCode = numberedLines.join("\n");
 
         const updateDetails = description
           ? `\nAddition details: ${description}`
@@ -658,7 +711,7 @@ server.tool(
           content: [
             {
               type: "text",
-              text: `Successfully added new code after line ${insertAfterLine} of MCP server "${nameWithoutExtension}".${updateDetails}`,
+              text: `Successfully added new code after line ${insertAfterLine} of MCP server "${nameWithoutExtension}".${updateDetails}\n\nUpdated file content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${updatedLines.length}`,
             },
           ],
         };
