@@ -98,6 +98,19 @@ When a user wants to update an existing server or if there is already a server w
 8. Explain how to update the Claude Desktop config if new environment variables are needed
 9. Clearly explain what changes you made
 
+### SCENARIO 3: DEBUGGING SERVERS THAT DON'T APPEAR IN CLAUDE DESKTOP
+When a user reports that a server isn't appearing in Claude Desktop:
+1. Use runServerDirectly to test the server and capture any errors
+2. Analyze the output for common issues:
+   - Syntax errors in the JavaScript code
+   - Missing dependencies
+   - Issues with environment variables
+   - Problems with the server connection to transport
+3. Recommend specific fixes based on the errors detected
+4. Use updateMcpServer to implement the necessary fixes
+5. Verify the Claude Desktop configuration is correct
+6. Remind the user to restart Claude Desktop after making changes
+
 ## CODE IMPLEMENTATION REQUIREMENTS
 - All servers must use the TypeScript SDK
 - Structure server code in this order: imports → server definition → resources → tools → prompts → transport/connection
@@ -142,6 +155,7 @@ When a user wants to update an existing server or if there is already a server w
 - installServerDependencies: To install npm packages
 - getClaudeConfig: To get the current Claude Desktop configuration
 - updateClaudeConfig: To update the Claude Desktop configuration with any environment variables needed
+- runServerDirectly: To test a server and debug any issues that prevent it from appearing in Claude Desktop
 
 After creating or updating a server, provide a brief summary of what the server does and how to use it. Remind users to:
 1. Update their Claude Desktop config to add actual API keys if needed
@@ -468,7 +482,14 @@ Available tools:
     - Parameters:
       - dependencies: Array of package names to install
      
-11. getHelp
+11. runServerDirectly
+    - Runs a server directly to test it and capture any errors
+    - Parameters:
+      - serverName: Name of the server to run
+      - timeout: Maximum runtime in milliseconds before terminating (default: 10000ms)
+    - Helps debug servers that don't appear in Claude Desktop
+
+12. getHelp
     - Shows this help message
 
 Workflow for creating a new server:
@@ -1203,6 +1224,126 @@ server.tool(
           {
             type: "text",
             text: `Error analyzing server dependencies: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.tool(
+  "runServerDirectly",
+  {
+    serverName: z.string().min(1),
+    timeout: z.number().int().positive().default(10000),
+  },
+  async ({ serverName, timeout }) => {
+    try {
+      const nameWithoutExtension = serverName.endsWith(".js")
+        ? serverName.slice(0, -3)
+        : serverName;
+
+      const sanitizedName = nameWithoutExtension.replace(
+        /[^a-zA-Z0-9-_]/g,
+        "_"
+      );
+      const filename = `${sanitizedName}.js`;
+      const filePath = path.join(SERVERS_DIR, filename);
+
+      const exists = await fileExists(filePath);
+      if (!exists) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Run the server using Node.js and capture stdout/stderr
+      const { spawn } = await import("child_process");
+
+      // Run without passing environment variables
+      const nodeProcess = spawn("node", [filePath], {
+        stdio: ["pipe", "pipe", "pipe"],
+        // Not passing environment variables
+      });
+
+      let stdout = "";
+      let stderr = "";
+      let hasError = false;
+
+      nodeProcess.stdout.on("data", (data) => {
+        stdout += data.toString();
+      });
+
+      nodeProcess.stderr.on("data", (data) => {
+        stderr += data.toString();
+        hasError = true;
+      });
+
+      // Set a timeout to kill the process after the specified time
+      const timeoutId = setTimeout(() => {
+        nodeProcess.kill();
+      }, timeout);
+
+      // Wait for the process to exit or timeout
+      await new Promise((resolve) => {
+        nodeProcess.on("exit", (code) => {
+          clearTimeout(timeoutId);
+          if (code !== 0 && code !== null) {
+            hasError = true;
+          }
+          resolve(null);
+        });
+      });
+
+      // Prepare the response
+      let resultText = "";
+      if (hasError) {
+        resultText = `Server "${nameWithoutExtension}" encountered errors during execution:\n\n`;
+        if (stderr) {
+          resultText += `STDERR:\n${stderr}\n\n`;
+        }
+        if (stdout) {
+          resultText += `STDOUT:\n${stdout}\n`;
+        }
+        resultText += `\nCommon issues that might cause this server not to run:
+1. Syntax errors in the server code
+2. Missing dependencies - use analyzeServerDependencies and installServerDependencies
+3. The server not properly connecting to the transport - make sure server.connect(transport) is called`;
+      } else {
+        resultText = `Server "${nameWithoutExtension}" started successfully and ran for ${timeout}ms.\n\n`;
+        if (stdout) {
+          resultText += `STDOUT:\n${stdout}\n\n`;
+        }
+        resultText += `The server appears to be working correctly. If it's not appearing in Claude Desktop:
+1. Make sure it's properly registered in the Claude Desktop config
+2. Try restarting Claude Desktop
+3. Check that the server path in the config is correct`;
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: resultText,
+          },
+        ],
+        isError: hasError,
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error running server: ${
               error instanceof Error ? error.message : String(error)
             }`,
           },
