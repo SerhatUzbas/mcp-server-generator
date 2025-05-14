@@ -15,6 +15,7 @@
   "author": "Serhat Uzbaş",
   "license": "MIT",
   "dependencies": {
+    "@google-cloud/bigquery": "^8.0.0",
     "@modelcontextprotocol/sdk": "^1.11.2",
     "node-fetch": "^2.7.0",
     "pg": "^8.16.0",
