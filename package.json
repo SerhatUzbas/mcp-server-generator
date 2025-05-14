@@ -3,11 +3,8 @@
   "version": "1.0.0",
   "description": "Create custom MCP servers with AI assistance",
   "type": "module",
-  "main": "dist/creator-server.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/creator-server.js",
-    "dev": "tsc && node dist/creator-server.js"
+    "dev": "node creator-server.js"
   },
   "keywords": [
     "mcp",
@@ -18,14 +15,15 @@
   "author": "Serhat Uzbaş",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.9.0",
+    "@modelcontextprotocol/sdk": "^1.11.2",
     "node-fetch": "^2.7.0",
     "pg": "^8.16.0",
+    "puppeteer": "^24.8.2",
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/node-fetch": "^2.6.12",
     "@types/node": "^20.10.0",
+    "@types/node-fetch": "^2.6.12",
     "@types/pg": "^8.15.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"

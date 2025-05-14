@@ -1,7 +1,7 @@
 // creator-server.ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { TEMPLATE_MCP_SERVER } from "./template.ts";
+import { TEMPLATE_MCP_SERVER } from "./template.js";
 import { exec } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
@@ -286,7 +286,6 @@ server.tool(
         };
       }
 
-
       // This is the critical step: We write the file to disk FIRST, before doing anything else.
       // This ensures that even if the context window limit is reached during the conversation,
       // the file has already been saved and can be accessed in a new conversation.
@@ -310,7 +309,6 @@ server.tool(
             error instanceof Error ? error.message : String(error)
           }`;
         }
-          
       }
 
       // Add line numbers to the code for better reference
@@ -639,23 +637,18 @@ server.tool(
           };
         }
 
-        // Split the new code into lines
         const newLines = code.split("\n");
 
-        // Replace the specified section with the new code
         const updatedLines = [
           ...lines.slice(0, startLine - 1),
           ...newLines,
           ...lines.slice(endLine),
         ];
 
-        // Join the lines back together
         const updatedCode = updatedLines.join("\n");
 
-        // Write the updated code back to the file
         await fs.writeFile(filePath, updatedCode);
-        
-        // Add line numbers to the updated content
+
         const numberedLines = updatedLines.map(
           (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
         );
@@ -717,7 +710,7 @@ server.tool(
 
         // Write the updated code back to the file
         await fs.writeFile(filePath, updatedCode);
-        
+
         // Add line numbers to the updated content
         const numberedLines = updatedLines.map(
           (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
@@ -836,7 +829,7 @@ server.tool(
       .describe("List of npm packages to install"),
   },
   async ({ dependencies }) => {
-    const log = (msg: string) =>
+    const log = (msg) =>
       process.stdout.write(`[installServerDependencies] ${msg}\n`);
 
     try {
@@ -1100,7 +1093,7 @@ server.tool(
 );
 
 // Helper function to recursively copy directories
-async function copyRecursive(src: string, dest: string) {
+async function copyRecursive(src, dest) {
   const stats = await fs.stat(src);
 
   if (stats.isDirectory()) {
@@ -1357,10 +1350,7 @@ server.tool(
 const transport = new StdioServerTransport();
 server.connect(transport);
 
-async function registerServerWithClaude(
-  serverName: string,
-  serverPath: string
-): Promise<string> {
+async function registerServerWithClaude(serverName, serverPath) {
   const configExists = await fileExists(CLAUDE_CONFIG_PATH);
 
   if (!configExists) {
@@ -1389,7 +1379,7 @@ async function registerServerWithClaude(
   return `Server registered with Claude Desktop as "${serverName}".`;
 }
 
-async function fileExists(filePath: string): Promise<boolean> {
+async function fileExists(filePath) {
   try {
     await fs.access(filePath);
     return true;
