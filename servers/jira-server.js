@@ -1,608 +1,124 @@
-import {
-  McpServer,
-  ResourceTemplate,
-} from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import fetch from "node-fetch";
-import https from "https";
 
-const agent = new https.Agent({
-  rejectUnauthorized: false,
+// Create an MCP server for Jira integration
+const server = new McpServer({
+  name: "Jira Assistant",
+  version: "1.0.0",
+  description: "MCP server for interacting with Jira"
 });
 
-// Validate that required environment variables are set
-const validateEnvVars = () => {
-  const requiredVars = ["JIRA_BASE_URL", "JIRA_API_TOKEN", "JIRA_EMAIL"];
-  const missingVars = requiredVars.filter((varName) => !process.env[varName]);
-
-  if (missingVars.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missingVars.join(", ")}`
-    );
+// Validate environment variables
+const validateEnv = () => {
+  const requiredVars = ['JIRA_API_TOKEN', 'JIRA_EMAIL', 'JIRA_BASE_URL'];
+  const missing = requiredVars.filter(varName => !process.env[varName]);
+  
+  if (missing.length > 0) {
+    console.error(`Error: Missing required environment variables: ${missing.join(', ')}`);
+    console.error('Please set these variables in Claude Desktop config.');
+    return false;
   }
-
-  return {
-    baseUrl: process.env.JIRA_BASE_URL,
-    apiToken: process.env.JIRA_API_TOKEN,
-    email: process.env.JIRA_EMAIL,
-  };
+  return true;
 };
 
-// Create an MCP server
-const server = new McpServer({
-  name: "jira-server",
-  version: "1.0.0",
-  description: "MCP server for interacting with Jira",
-});
-
-// Helper function to make authenticated requests to Jira API
-const jiraRequest = async (endpoint, method = "GET", body = null) => {
-  const { baseUrl, apiToken, email } = validateEnvVars();
-
-  const authString = Buffer.from(`${email}:${apiToken}`).toString("base64");
-
+// Helper function to make Jira API requests
+async function jiraRequest(endpoint, method = 'GET', body = null) {
+  const auth = Buffer.from(
+    `${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`
+  ).toString('base64');
+  
+  const url = `${process.env.JIRA_BASE_URL}${endpoint}`;
   const options = {
     method,
     headers: {
-      Authorization: `Basic ${authString}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
+      'Authorization': `Basic ${auth}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    }
   };
-
+  
   if (body) {
     options.body = JSON.stringify(body);
   }
-
-  const url = `${baseUrl}/rest/api/3${endpoint}`;
-
+  
   try {
-    const response = await fetch(url, { ...options, agent });
-
+    const response = await fetch(url, options);
+    const data = await response.json();
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Jira API error (${response.status}): ${errorText}`);
+      throw new Error(`Jira API error: ${data.errorMessages?.[0] || response.statusText}`);
     }
-
-    if (response.status === 204) {
-      return { success: true };
-    }
-
-    return await response.json();
+    return data;
   } catch (error) {
-    console.error(`Error calling Jira API: ${error.message}`);
-    throw error;
+    throw new Error(`Error making Jira request: ${error.message}`);
   }
-};
+}
 
-// Convert Jira's Atlassian Document Format to plain text
-const adfToPlainText = (content) => {
-  if (!content) return "";
-
-  try {
-    let result = "";
-
-    // Handle different content types
-    if (typeof content === "string") {
-      return content;
-    }
-
-    if (Array.isArray(content)) {
-      return content.map((item) => adfToPlainText(item)).join("\n");
-    }
-
-    if (content.type === "doc") {
-      return adfToPlainText(content.content);
-    }
-
-    if (content.type === "paragraph") {
-      return adfToPlainText(content.content) + "\n";
-    }
-
-    if (content.type === "text") {
-      return content.text || "";
-    }
-
-    if (content.type === "bulletList" || content.type === "orderedList") {
-      return adfToPlainText(content.content);
-    }
-
-    if (content.type === "listItem") {
-      return "- " + adfToPlainText(content.content);
-    }
-
-    if (content.type === "heading") {
-      const level = content.attrs?.level || 1;
-      const prefix = "#".repeat(level) + " ";
-      return prefix + adfToPlainText(content.content) + "\n";
-    }
-
-    if (content.type === "codeBlock") {
-      return "```\n" + adfToPlainText(content.content) + "\n```\n";
-    }
-
-    if (content.type === "blockquote") {
-      return "> " + adfToPlainText(content.content) + "\n";
-    }
-
-    if (content.content) {
-      return adfToPlainText(content.content);
-    }
-
-    return "";
-  } catch (error) {
-    console.error("Error converting ADF to plain text:", error);
-    return JSON.stringify(content);
-  }
-};
-
-// Format an issue for display
-const formatIssue = (issue) => {
-  try {
-    let result = `Key: ${issue.key}\n`;
-    result += `Type: ${issue.fields.issuetype.name}\n`;
-    result += `Status: ${issue.fields.status.name}\n`;
-    result += `Summary: ${issue.fields.summary}\n`;
-
-    if (issue.fields.assignee) {
-      result += `Assignee: ${issue.fields.assignee.displayName} (${issue.fields.assignee.emailAddress})\n`;
-    } else {
-      result += `Assignee: Unassigned\n`;
-    }
-
-    if (issue.fields.reporter) {
-      result += `Reporter: ${issue.fields.reporter.displayName} (${issue.fields.reporter.emailAddress})\n`;
-    }
-
-    result += `Created: ${issue.fields.created}\n`;
-    result += `Updated: ${issue.fields.updated}\n`;
-
-    if (issue.fields.priority) {
-      result += `Priority: ${issue.fields.priority.name}\n`;
-    }
-
-    result += `\nDescription:\n${adfToPlainText(issue.fields.description)}\n`;
-
-    return result;
-  } catch (error) {
-    console.error("Error formatting issue:", error);
-    return JSON.stringify(issue);
-  }
-};
-
-// Resource for getting issues
-server.resource(
-  "issues",
-  new ResourceTemplate("jira://issues/{query}", { list: undefined }),
-  async (uri, { query }) => {
-    try {
-      const jql = query || "";
-      const data = await jiraRequest(`/search?jql=${encodeURIComponent(jql)}`);
-
-      let text = `Found ${data.total} issues\n\n`;
-
-      if (data.issues && data.issues.length > 0) {
-        for (const issue of data.issues) {
-          text += `- ${issue.key}: ${issue.fields.summary} (Status: ${issue.fields.status.name})\n`;
-        }
-      } else {
-        text += "No issues found matching the query.";
-      }
-
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            text,
-          },
-        ],
-      };
-    } catch (error) {
-      console.error(`Error searching issues: ${error.message}`);
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            text: `Error searching issues: ${error.message}`,
-          },
-        ],
-      };
-    }
-  }
-);
-
-// Resource for getting a specific issue
-server.resource(
-  "issue",
-  new ResourceTemplate("jira://issue/{issueKey}", { list: undefined }),
-  async (uri, { issueKey }) => {
-    try {
-      const data = await jiraRequest(`/issue/${issueKey}`);
-      const text = formatIssue(data);
-
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            text,
-          },
-        ],
-      };
-    } catch (error) {
-      console.error(`Error getting issue ${issueKey}: ${error.message}`);
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            text: `Error getting issue ${issueKey}: ${error.message}`,
-          },
-        ],
-      };
-    }
-  }
-);
-
-// Resource for getting comments on an issue
-server.resource(
-  "comments",
-  new ResourceTemplate("jira://issue/{issueKey}/comments", { list: undefined }),
-  async (uri, { issueKey }) => {
-    try {
-      const data = await jiraRequest(`/issue/${issueKey}/comment`);
-
-      let text = `Comments for ${issueKey}:\n\n`;
-
-      if (data.comments && data.comments.length > 0) {
-        for (const comment of data.comments) {
-          text += `--- Comment by ${comment.author.displayName} on ${comment.created} ---\n`;
-          text += adfToPlainText(comment.body) + "\n\n";
-        }
-      } else {
-        text += "No comments found for this issue.";
-      }
-
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            text,
-          },
-        ],
-      };
-    } catch (error) {
-      console.error(`Error getting comments for ${issueKey}: ${error.message}`);
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            text: `Error getting comments for ${issueKey}: ${error.message}`,
-          },
-        ],
-      };
-    }
-  }
-);
-
-// Resource for getting projects
-server.resource("projects", "jira://projects", async (uri) => {
-  try {
-    const data = await jiraRequest("/project");
-
-    let text = "Available Jira Projects:\n\n";
-
-    if (data && data.length > 0) {
-      for (const project of data) {
-        text += `- ${project.key}: ${project.name}\n`;
-      }
-    } else {
-      text += "No projects found.";
-    }
-
-    return {
-      contents: [
-        {
-          uri: uri.href,
-          text,
-        },
-      ],
-    };
-  } catch (error) {
-    console.error(`Error getting projects: ${error.message}`);
-    return {
-      contents: [
-        {
-          uri: uri.href,
-          text: `Error getting projects: ${error.message}`,
-        },
-      ],
-    };
-  }
-});
-
-// Resource for getting epics
-server.resource(
-  "epics",
-  new ResourceTemplate("jira://epics/{projectKey}", { list: undefined }),
-  async (uri, { projectKey }) => {
-    try {
-      // Search for epics in the specific project or across all projects if not specified
-      const jql = projectKey
-        ? `project = ${projectKey} AND issuetype = Epic`
-        : `issuetype = Epic`;
-
-      const data = await jiraRequest(`/search?jql=${encodeURIComponent(jql)}`);
-
-      let text = `Found ${data.total} epics${
-        projectKey ? ` in project ${projectKey}` : ""
-      }\n\n`;
-
-      if (data.issues && data.issues.length > 0) {
-        for (const epic of data.issues) {
-          text += `- ${epic.key}: ${epic.fields.summary} (Status: ${epic.fields.status.name})\n`;
-        }
-      } else {
-        text += "No epics found.";
-      }
-
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            text,
-          },
-        ],
-      };
-    } catch (error) {
-      console.error(`Error getting epics: ${error.message}`);
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            text: `Error getting epics: ${error.message}`,
-          },
-        ],
-      };
-    }
-  }
-);
-
-// Resource for getting issues under an epic
-server.resource(
-  "epicIssues",
-  new ResourceTemplate("jira://epic/{epicKey}/issues", { list: undefined }),
-  async (uri, { epicKey }) => {
-    try {
-      // First verify this is an epic
-      const epicData = await jiraRequest(`/issue/${epicKey}`);
-      if (epicData.fields.issuetype.name !== "Epic") {
-        return {
-          contents: [
-            {
-              uri: uri.href,
-              text: `Error: ${epicKey} is not an Epic issue type.`,
-            },
-          ],
-        };
-      }
-
-      // Get all issues that belong to this epic
-      // Different Jira instances might use different fields for epic links
-      // Common ones are "epic link" or "Parent Link"
-      const jql = `"Epic Link" = ${epicKey}`;
-      const data = await jiraRequest(`/search?jql=${encodeURIComponent(jql)}`);
-
-      let text = `Issues in Epic ${epicKey}: ${epicData.fields.summary}\n\n`;
-
-      if (data.issues && data.issues.length > 0) {
-        for (const issue of data.issues) {
-          text += `- ${issue.key}: ${issue.fields.summary} (Type: ${issue.fields.issuetype.name}, Status: ${issue.fields.status.name})\n`;
-        }
-      } else {
-        text += "No issues found in this epic.";
-      }
-
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            text,
-          },
-        ],
-      };
-    } catch (error) {
-      console.error(
-        `Error getting issues for epic ${epicKey}: ${error.message}`
-      );
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            text: `Error getting issues for epic ${epicKey}: ${error.message}`,
-          },
-        ],
-      };
-    }
-  }
-);
-
-// Tool to search for issues
+// Tool: List projects
 server.tool(
-  "searchIssues",
-  {
-    jql: z.string().describe("JQL query string to search for issues"),
-  },
-  async ({ jql }) => {
-    try {
-      const data = await jiraRequest(`/search?jql=${encodeURIComponent(jql)}`);
-
-      let result = `Found ${data.total} issues\n\n`;
-
-      if (data.issues && data.issues.length > 0) {
-        const issues = data.issues.map((issue) => ({
-          key: issue.key,
-          summary: issue.fields.summary,
-          status: issue.fields.status.name,
-          issueType: issue.fields.issuetype.name,
-          assignee: issue.fields.assignee
-            ? issue.fields.assignee.displayName
-            : "Unassigned",
-        }));
-
-        result += issues
-          .map(
-            (issue) =>
-              `- ${issue.key}: ${issue.summary} (Type: ${issue.issueType}, Status: ${issue.status}, Assignee: ${issue.assignee})`
-          )
-          .join("\n");
-      } else {
-        result += "No issues found matching the query.";
-      }
-
+  "listProjects",
+  {},
+  async () => {
+    if (!validateEnv()) {
       return {
-        content: [{ type: "text", text: result }],
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      const projects = await jiraRequest('/rest/api/3/project');
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(projects.map(p => ({ id: p.id, key: p.key, name: p.name })), null, 2) 
+        }]
       };
     } catch (error) {
       return {
-        content: [
-          { type: "text", text: `Error searching issues: ${error.message}` },
-        ],
-        isError: true,
+        content: [{ type: "text", text: error.message }],
+        isError: true
       };
     }
   }
 );
 
-// Tool to get details of a specific issue
-server.tool(
-  "getIssue",
-  {
-    issueKey: z.string().describe("The issue key (e.g., 'PROJECT-123')"),
-  },
-  async ({ issueKey }) => {
-    try {
-      const data = await jiraRequest(`/issue/${issueKey}`);
-      const formattedIssue = formatIssue(data);
-
-      return {
-        content: [{ type: "text", text: formattedIssue }],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error getting issue ${issueKey}: ${error.message}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-);
-
-// Tool to create a new issue
+// Tool: Create a new issue
 server.tool(
   "createIssue",
   {
-    projectKey: z
-      .string()
-      .describe("The project key where the issue will be created"),
-    issueType: z
-      .string()
-      .describe("The issue type (e.g., 'Bug', 'Task', 'Story')"),
-    summary: z.string().describe("The issue summary/title"),
-    description: z.string().describe("The issue description"),
-    priority: z
-      .string()
-      .optional()
-      .describe("Optional: The priority of the issue"),
+    projectKey: z.string().min(1, "Project key is required"),
+    summary: z.string().min(1, "Summary is required"),
+    description: z.string().optional(),
+    issueType: z.string().default("Task"),
+    priority: z.string().optional(),
+    labels: z.array(z.string()).optional()
   },
-  async ({ projectKey, issueType, summary, description, priority }) => {
-    try {
-      // Create ADF document for description
-      const descriptionDoc = {
-        type: "doc",
-        version: 1,
-        content: [
-          {
-            type: "paragraph",
-            content: [
-              {
-                type: "text",
-                text: description,
-              },
-            ],
-          },
-        ],
-      };
-
-      const requestBody = {
-        fields: {
-          project: {
-            key: projectKey,
-          },
-          summary: summary,
-          description: descriptionDoc,
-          issuetype: {
-            name: issueType,
-          },
-        },
-      };
-
-      if (priority) {
-        requestBody.fields.priority = {
-          name: priority,
-        };
-      }
-
-      const data = await jiraRequest("/issue", "POST", requestBody);
-
+  async ({ projectKey, summary, description, issueType, priority, labels }) => {
+    if (!validateEnv()) {
       return {
-        content: [
-          {
-            type: "text",
-            text: `Issue created successfully! Key: ${data.key}\nLink: ${process.env.JIRA_BASE_URL}/browse/${data.key}`,
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          { type: "text", text: `Error creating issue: ${error.message}` },
-        ],
-        isError: true,
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
       };
     }
-  }
-);
-
-// Tool to update an existing issue
-server.tool(
-  "updateIssue",
-  {
-    issueKey: z
-      .string()
-      .describe("The issue key to update (e.g., 'PROJECT-123')"),
-    summary: z.string().optional().describe("Optional: New summary/title"),
-    description: z.string().optional().describe("Optional: New description"),
-    status: z.string().optional().describe("Optional: New status"),
-    assignee: z
-      .string()
-      .optional()
-      .describe("Optional: New assignee (email or username)"),
-    priority: z.string().optional().describe("Optional: New priority"),
-  },
-  async ({ issueKey, summary, description, status, assignee, priority }) => {
+    
     try {
-      const fields = {};
-
-      if (summary) {
-        fields.summary = summary;
-      }
-
+      const issueData = {
+        fields: {
+          project: { key: projectKey },
+          summary,
+          issuetype: { name: issueType }
+        }
+      };
+      
       if (description) {
-        fields.description = {
+        issueData.fields.description = {
           type: "doc",
           version: 1,
           content: [
@@ -611,96 +127,401 @@ server.tool(
               content: [
                 {
                   type: "text",
-                  text: description,
-                },
-              ],
-            },
-          ],
+                  text: description
+                }
+              ]
+            }
+          ]
         };
       }
-
-      if (assignee) {
-        fields.assignee = {
-          id: assignee,
-        };
-      }
-
+      
       if (priority) {
-        fields.priority = {
-          name: priority,
-        };
+        issueData.fields.priority = { name: priority };
       }
-
-      // Only update fields if we have something to update
-      if (Object.keys(fields).length > 0) {
-        await jiraRequest(`/issue/${issueKey}`, "PUT", { fields });
+      
+      if (labels && labels.length > 0) {
+        issueData.fields.labels = labels;
       }
-
-      // Handle status updates separately via transitions if needed
-      if (status) {
-        // First, get available transitions
-        const transitions = await jiraRequest(`/issue/${issueKey}/transitions`);
-        const targetTransition = transitions.transitions.find(
-          (t) =>
-            t.name.toLowerCase() === status.toLowerCase() ||
-            t.to.name.toLowerCase() === status.toLowerCase()
-        );
-
-        if (targetTransition) {
-          await jiraRequest(`/issue/${issueKey}/transitions`, "POST", {
-            transition: {
-              id: targetTransition.id,
-            },
-          });
-        } else {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Issue ${issueKey} updated, but could not change status to '${status}'. Available statuses are: ${transitions.transitions
-                  .map((t) => t.to.name)
-                  .join(", ")}`,
-              },
-            ],
-          };
-        }
-      }
-
+      
+      const newIssue = await jiraRequest('/rest/api/3/issue', 'POST', issueData);
+      
       return {
-        content: [
-          {
-            type: "text",
-            text: `Issue ${issueKey} updated successfully!\nLink: ${process.env.JIRA_BASE_URL}/browse/${issueKey}`,
-          },
-        ],
+        content: [{ 
+          type: "text", 
+          text: `Issue created successfully!\nKey: ${newIssue.key}\nLink: ${process.env.JIRA_BASE_URL}/browse/${newIssue.key}`
+        }]
       };
     } catch (error) {
       return {
-        content: [
-          {
-            type: "text",
-            text: `Error updating issue ${issueKey}: ${error.message}`,
-          },
-        ],
-        isError: true,
+        content: [{ type: "text", text: error.message }],
+        isError: true
       };
     }
   }
 );
 
-// Tool to add a comment to an issue
+// Tool: Create subtask
+server.tool(
+  "createSubtask",
+  {
+    parentIssueKey: z.string().min(1, "Parent issue key is required"),
+    summary: z.string().min(1, "Summary is required"),
+    description: z.string().optional()
+  },
+  async ({ parentIssueKey, summary, description }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      // First, get the parent issue to determine the project
+      const parentIssue = await jiraRequest(`/rest/api/3/issue/${parentIssueKey}`);
+      
+      const subtaskData = {
+        fields: {
+          project: { id: parentIssue.fields.project.id },
+          summary,
+          issuetype: { name: "Sub-task" },
+          parent: { key: parentIssueKey }
+        }
+      };
+      
+      if (description) {
+        subtaskData.fields.description = {
+          type: "doc",
+          version: 1,
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                {
+                  type: "text",
+                  text: description
+                }
+              ]
+            }
+          ]
+        };
+      }
+      
+      const newSubtask = await jiraRequest('/rest/api/3/issue', 'POST', subtaskData);
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Subtask created successfully!\nKey: ${newSubtask.key}\nLink: ${process.env.JIRA_BASE_URL}/browse/${newSubtask.key}`
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Link issues
+server.tool(
+  "linkIssues",
+  {
+    fromIssueKey: z.string().min(1, "From issue key is required"),
+    toIssueKey: z.string().min(1, "To issue key is required"),
+    linkType: z.string().default("Relates")
+  },
+  async ({ fromIssueKey, toIssueKey, linkType }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      const linkData = {
+        outwardIssue: { key: toIssueKey },
+        inwardIssue: { key: fromIssueKey },
+        type: { name: linkType }
+      };
+      
+      await jiraRequest('/rest/api/3/issueLink', 'POST', linkData);
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Issues linked successfully!\n${fromIssueKey} ${linkType} ${toIssueKey}`
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Get issue information
+server.tool(
+  "getIssue",
+  {
+    issueKey: z.string().min(1, "Issue key is required")
+  },
+  async ({ issueKey }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      const issue = await jiraRequest(`/rest/api/3/issue/${issueKey}`);
+      
+      // Format the response to be more readable
+      const formattedIssue = {
+        key: issue.key,
+        summary: issue.fields.summary,
+        status: issue.fields.status.name,
+        issueType: issue.fields.issuetype.name,
+        priority: issue.fields.priority?.name || 'Not set',
+        assignee: issue.fields.assignee?.displayName || 'Unassigned',
+        reporter: issue.fields.reporter?.displayName || 'Unknown',
+        created: new Date(issue.fields.created).toLocaleString(),
+        updated: new Date(issue.fields.updated).toLocaleString(),
+        labels: issue.fields.labels || [],
+        url: `${process.env.JIRA_BASE_URL}/browse/${issue.key}`
+      };
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(formattedIssue, null, 2) 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Search issues
+server.tool(
+  "searchIssues",
+  {
+    jql: z.string().min(1, "JQL query is required"),
+    maxResults: z.number().min(1).max(100).default(10)
+  },
+  async ({ jql, maxResults }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      const searchData = {
+        jql,
+        maxResults,
+        fields: ["summary", "status", "issuetype", "priority", "assignee"]
+      };
+      
+      const results = await jiraRequest('/rest/api/3/search', 'POST', searchData);
+      
+      const formattedResults = results.issues.map(issue => ({
+        key: issue.key,
+        summary: issue.fields.summary,
+        status: issue.fields.status.name,
+        issueType: issue.fields.issuetype.name,
+        priority: issue.fields.priority?.name || 'Not set',
+        assignee: issue.fields.assignee?.displayName || 'Unassigned',
+        url: `${process.env.JIRA_BASE_URL}/browse/${issue.key}`
+      }));
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Found ${results.total} issues (showing ${formattedResults.length}):\n\n${JSON.stringify(formattedResults, null, 2)}` 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+// Tool: Assign issue to user
+server.tool(
+  "assignIssue",
+  {
+    issueKey: z.string().min(1, "Issue key is required"),
+    accountId: z.string().optional(),
+    displayName: z.string().optional()
+  },
+  async ({ issueKey, accountId, displayName }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    if (!accountId && !displayName) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Either accountId or displayName must be provided." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      let assigneeAccountId = accountId;
+      
+      // If displayName is provided but accountId is not, search for the user
+      if (!accountId && displayName) {
+        const users = await jiraRequest(`/rest/api/3/user/search?query=${encodeURIComponent(displayName)}`);
+        if (users.length === 0) {
+          return {
+            content: [{ 
+              type: "text", 
+              text: `No users found matching displayName: ${displayName}` 
+            }],
+            isError: true
+          };
+        }
+        
+        // Use the first user that matches the display name
+        assigneeAccountId = users[0].accountId;
+      }
+      
+      const assignData = {
+        accountId: assigneeAccountId
+      };
+      
+      await jiraRequest(`/rest/api/3/issue/${issueKey}/assignee`, 'PUT', assignData);
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Issue ${issueKey} has been assigned successfully!` 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Transition issue status
+server.tool(
+  "transitionIssue",
+  {
+    issueKey: z.string().min(1, "Issue key is required"),
+    transitionName: z.string().min(1, "Transition name is required (e.g., 'In Progress', 'Done')")
+  },
+  async ({ issueKey, transitionName }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      // Get available transitions
+      const availableTransitions = await jiraRequest(`/rest/api/3/issue/${issueKey}/transitions`);
+      
+      // Find the transition ID that matches the requested name
+      const transition = availableTransitions.transitions.find(
+        t => t.name.toLowerCase() === transitionName.toLowerCase()
+      );
+      
+      if (!transition) {
+        return {
+          content: [{ 
+            type: "text", 
+            text: `No transition found with name "${transitionName}". Available transitions: ${availableTransitions.transitions.map(t => t.name).join(', ')}` 
+          }],
+          isError: true
+        };
+      }
+      
+      // Execute the transition
+      const transitionData = {
+        transition: {
+          id: transition.id
+        }
+      };
+      
+      await jiraRequest(`/rest/api/3/issue/${issueKey}/transitions`, 'POST', transitionData);
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Issue ${issueKey} has been transitioned to "${transition.name}" successfully!` 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Add comment to issue
 server.tool(
   "addComment",
   {
-    issueKey: z
-      .string()
-      .describe("The issue key to comment on (e.g., 'PROJECT-123')"),
-    comment: z.string().describe("The comment text"),
+    issueKey: z.string().min(1, "Issue key is required"),
+    comment: z.string().min(1, "Comment text is required")
   },
   async ({ issueKey, comment }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
     try {
-      // Create ADF document for comment
-      const commentBody = {
+      const commentData = {
         body: {
           type: "doc",
           version: 1,
@@ -710,354 +531,887 @@ server.tool(
               content: [
                 {
                   type: "text",
-                  text: comment,
-                },
-              ],
-            },
-          ],
-        },
+                  text: comment
+                }
+              ]
+            }
+          ]
+        }
       };
-
-      await jiraRequest(`/issue/${issueKey}/comment`, "POST", commentBody);
-
+      
+      const response = await jiraRequest(`/rest/api/3/issue/${issueKey}/comment`, 'POST', commentData);
+      
       return {
-        content: [
-          {
-            type: "text",
-            text: `Comment added to ${issueKey} successfully!\nLink: ${process.env.JIRA_BASE_URL}/browse/${issueKey}`,
-          },
-        ],
+        content: [{ 
+          type: "text", 
+          text: `Comment added successfully to ${issueKey}!` 
+        }]
       };
     } catch (error) {
       return {
-        content: [
-          {
-            type: "text",
-            text: `Error adding comment to ${issueKey}: ${error.message}`,
-          },
-        ],
-        isError: true,
+        content: [{ type: "text", text: error.message }],
+        isError: true
       };
     }
   }
 );
 
-// Tool to list available projects
-server.tool("listProjects", {}, async () => {
-  try {
-    const data = await jiraRequest("/project");
-
-    let result = "Available Jira Projects:\n\n";
-
-    if (data && data.length > 0) {
-      const projects = data.map((project) => ({
-        key: project.key,
-        name: project.name,
-        type: project.projectTypeKey,
-      }));
-
-      result += projects
-        .map(
-          (project) =>
-            `- ${project.key}: ${project.name} (Type: ${project.type})`
-        )
-        .join("\n");
-    } else {
-      result += "No projects found.";
-    }
-
-    return {
-      content: [{ type: "text", text: result }],
-    };
-  } catch (error) {
-    return {
-      content: [
-        { type: "text", text: `Error listing projects: ${error.message}` },
-      ],
-      isError: true,
-    };
-  }
-});
-
-// Tool to create a new epic
+// Tool: Link issue to epic
 server.tool(
-  "createEpic",
+  "linkToEpic",
   {
-    projectKey: z
-      .string()
-      .describe("The project key where the epic will be created"),
-    summary: z.string().describe("The epic summary/title"),
-    description: z.string().describe("The epic description"),
-    priority: z
-      .string()
-      .optional()
-      .describe("Optional: The priority of the epic"),
-  },
-  async ({ projectKey, summary, description, priority }) => {
-    try {
-      // Create ADF document for description
-      const descriptionDoc = {
-        type: "doc",
-        version: 1,
-        content: [
-          {
-            type: "paragraph",
-            content: [
-              {
-                type: "text",
-                text: description,
-              },
-            ],
-          },
-        ],
-      };
-
-      const requestBody = {
-        fields: {
-          project: {
-            key: projectKey,
-          },
-          summary: summary,
-          description: descriptionDoc,
-          issuetype: {
-            name: "Epic", // Specifically create an Epic type
-          },
-        },
-      };
-
-      if (priority) {
-        requestBody.fields.priority = {
-          name: priority,
-        };
-      }
-
-      const data = await jiraRequest("/issue", "POST", requestBody);
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Epic created successfully! Key: ${data.key}\nLink: ${process.env.JIRA_BASE_URL}/browse/${data.key}`,
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          { type: "text", text: `Error creating epic: ${error.message}` },
-        ],
-        isError: true,
-      };
-    }
-  }
-);
-
-// Tool to add an issue to an epic
-server.tool(
-  "addIssueToEpic",
-  {
-    issueKey: z
-      .string()
-      .describe("The issue key to add to the epic (e.g., 'PROJECT-123')"),
-    epicKey: z
-      .string()
-      .describe(
-        "The epic key to which the issue will be added (e.g., 'PROJECT-456')"
-      ),
+    issueKey: z.string().min(1, "Issue key is required"),
+    epicKey: z.string().min(1, "Epic key is required")
   },
   async ({ issueKey, epicKey }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
     try {
-      // First verify the epic is actually an epic
-      const epicData = await jiraRequest(`/issue/${epicKey}`);
-      if (epicData.fields.issuetype.name !== "Epic") {
+      // Verify the epic exists and is actually an epic
+      const epic = await jiraRequest(`/rest/api/3/issue/${epicKey}`);
+      if (epic.fields.issuetype.name !== 'Epic') {
         return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${epicKey} is not an Epic issue type.`,
-            },
-          ],
-          isError: true,
+          content: [{ 
+            type: "text", 
+            text: `The issue ${epicKey} is not an Epic (it's a ${epic.fields.issuetype.name}).` 
+          }],
+          isError: true
         };
       }
-
-      // For Jira Cloud, we typically use the "Parent Link" field (customfield_10014 is often the Epic Link field)
-      // But the actual field ID may vary across Jira instances
-      // First approach - try with Epic Link field
-      try {
-        await jiraRequest(`/issue/${issueKey}`, "PUT", {
-          fields: {
-            customfield_10014: epicKey, // This is typically the Epic Link field, but may vary
-          },
-        });
-      } catch (epicLinkError) {
-        console.error(
-          "Error setting Epic Link field, attempting alternate method:",
-          epicLinkError.message
-        );
-
-        // Second approach - try to use the /epic/{epicIdOrKey}/issue endpoint if available
+      
+      // Link issue to epic
+      // Note: This uses Jira's custom field for epic link, which can vary between instances
+      // We'll try both common field IDs
+      const epicLinkFieldIds = ['customfield_10014', 'customfield_10008'];
+      let success = false;
+      
+      for (const fieldId of epicLinkFieldIds) {
         try {
-          await jiraRequest(`/epic/${epicKey}/issue`, "POST", {
-            issues: [issueKey],
+          const updateData = {
+            fields: {
+              [fieldId]: epicKey
+            }
+          };
+          
+          await jiraRequest(`/rest/api/3/issue/${issueKey}`, 'PUT', updateData);
+          success = true;
+          break;
+        } catch (error) {
+          // Try the next field ID
+          continue;
+        }
+      }
+      
+      if (!success) {
+        // If direct update failed, try using the Epic Link functionality
+        try {
+          await jiraRequest(`/rest/agile/1.0/epic/${epicKey}/issue`, 'POST', {
+            issues: [issueKey]
           });
-        } catch (epicApiError) {
-          // If both methods fail, provide diagnostic information
+          success = true;
+        } catch (error) {
+          // Final fallback to standard issue linking
+          const linkData = {
+            outwardIssue: { key: issueKey },
+            inwardIssue: { key: epicKey },
+            type: { name: "Relates" }
+          };
+          
+          await jiraRequest('/rest/api/3/issueLink', 'POST', linkData);
+          
           return {
-            content: [
-              {
-                type: "text",
-                text: `Error adding issue to epic: Could not determine the correct method to link issues to epics in your Jira instance. Please check your Jira configuration and consult with your Jira administrator.
-                
-Technical details:
-Epic Link field error: ${epicLinkError.message}
-Epic API error: ${epicApiError.message}`,
-              },
-            ],
-            isError: true,
+            content: [{ 
+              type: "text", 
+              text: `Could not establish proper Epic link. Created regular issue link instead: ${issueKey} Relates to ${epicKey}` 
+            }]
           };
         }
       }
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Issue ${issueKey} successfully added to Epic ${epicKey}!\nEpic Link: ${process.env.JIRA_BASE_URL}/browse/${epicKey}`,
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error adding issue ${issueKey} to epic ${epicKey}: ${error.message}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-);
-
-// Tool to get details of an epic
-server.tool(
-  "getEpic",
-  {
-    epicKey: z.string().describe("The epic key (e.g., 'PROJECT-123')"),
-  },
-  async ({ epicKey }) => {
-    try {
-      const data = await jiraRequest(`/issue/${epicKey}`);
-
-      // Verify this is actually an epic
-      if (data.fields.issuetype.name !== "Epic") {
+      
+      if (success) {
         return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${epicKey} is not an Epic issue type.`,
-            },
-          ],
-          isError: true,
+          content: [{ 
+            type: "text", 
+            text: `Issue ${issueKey} has been linked to Epic ${epicKey} successfully!` 
+          }]
         };
       }
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
 
-      // Format like a normal issue but add extra epic-specific information
-      let formattedEpic = formatIssue(data);
+// Tool: Get available issue types
+server.tool(
+  "getIssueTypes",
+  {
+    projectKey: z.string().optional()
+  },
+  async ({ projectKey }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      let issueTypes;
+      
+      if (projectKey) {
+        // Get project-specific issue types
+        const project = await jiraRequest(`/rest/api/3/project/${projectKey}`);
+        issueTypes = project.issueTypes;
+      } else {
+        // Get all issue types
+        issueTypes = await jiraRequest('/rest/api/3/issuetype');
+      }
+      
+      const formattedTypes = issueTypes.map(type => ({
+        id: type.id,
+        name: type.name,
+        description: type.description,
+        subtask: type.subtask
+      }));
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(formattedTypes, null, 2) 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
 
-      // Get issues in this epic
-      const jql = `"Epic Link" = ${epicKey}`;
-      const issuesData = await jiraRequest(
-        `/search?jql=${encodeURIComponent(jql)}`
-      );
-
-      formattedEpic += `\nIssues in this Epic: ${issuesData.total || 0}\n`;
-
-      if (issuesData.issues && issuesData.issues.length > 0) {
-        formattedEpic += "\nContained Issues:\n";
-        for (const issue of issuesData.issues) {
-          formattedEpic += `- ${issue.key}: ${issue.fields.summary} (${issue.fields.status.name})\n`;
+// Tool: Get available users
+server.tool(
+  "getUsers",
+  {
+    query: z.string().min(1, "Search query is required")
+  },
+  async ({ query }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      const users = await jiraRequest(`/rest/api/3/user/search?query=${encodeURIComponent(query)}`);
+      
+      const formattedUsers = users.map(user => ({
+        accountId: user.accountId,
+        displayName: user.displayName,
+        emailAddress: user.emailAddress,
+        active: user.active
+      }));
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(formattedUsers, null, 2) 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+// Tool: Create multiple issues in batch
+server.tool(
+  "createMultipleIssues",
+  {
+    projectKey: z.string().min(1, "Project key is required"),
+    issues: z.array(
+      z.object({
+        summary: z.string().min(1, "Summary is required"),
+        description: z.string().optional(),
+        issueType: z.string().default("Task"),
+        priority: z.string().optional(),
+        labels: z.array(z.string()).optional()
+      })
+    ).min(1, "At least one issue must be provided")
+  },
+  async ({ projectKey, issues }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      const createdIssues = [];
+      const errors = [];
+      
+      // Process each issue
+      for (const issue of issues) {
+        try {
+          const issueData = {
+            fields: {
+              project: { key: projectKey },
+              summary: issue.summary,
+              issuetype: { name: issue.issueType || "Task" }
+            }
+          };
+          
+          if (issue.description) {
+            issueData.fields.description = {
+              type: "doc",
+              version: 1,
+              content: [
+                {
+                  type: "paragraph",
+                  content: [
+                    {
+                      type: "text",
+                      text: issue.description
+                    }
+                  ]
+                }
+              ]
+            };
+          }
+          
+          if (issue.priority) {
+            issueData.fields.priority = { name: issue.priority };
+          }
+          
+          if (issue.labels && issue.labels.length > 0) {
+            issueData.fields.labels = issue.labels;
+          }
+          
+          const newIssue = await jiraRequest('/rest/api/3/issue', 'POST', issueData);
+          
+          createdIssues.push({
+            key: newIssue.key,
+            summary: issue.summary,
+            url: `${process.env.JIRA_BASE_URL}/browse/${newIssue.key}`
+          });
+        } catch (error) {
+          errors.push({
+            summary: issue.summary,
+            error: error.message
+          });
         }
       }
-
+      
+      // Return results
       return {
-        content: [{ type: "text", text: formattedEpic }],
+        content: [{ 
+          type: "text", 
+          text: `Created ${createdIssues.length} issues\n\nCreated issues:\n${JSON.stringify(createdIssues, null, 2)}\n\n${errors.length > 0 ? `Errors (${errors.length}):\n${JSON.stringify(errors, null, 2)}` : 'No errors occurred.'}` 
+        }]
       };
     } catch (error) {
       return {
-        content: [
-          {
-            type: "text",
-            text: `Error getting epic ${epicKey}: ${error.message}`,
-          },
-        ],
-        isError: true,
+        content: [{ type: "text", text: error.message }],
+        isError: true
       };
     }
   }
 );
 
-// Tool to list epics
+// Tool: Get boards (for Jira Software/Scrum/Kanban)
 server.tool(
-  "listEpics",
+  "getBoards",
   {
-    projectKey: z
-      .string()
-      .optional()
-      .describe("Optional: The project key to filter epics"),
-    limit: z
-      .number()
-      .optional()
-      .describe("Optional: Maximum number of epics to return"),
+    projectKeyOrId: z.string().optional(),
+    name: z.string().optional(),
+    maxResults: z.number().min(1).max(100).default(50)
   },
-  async ({ projectKey, limit = 50 }) => {
-    try {
-      // Search for epics in the specific project or across all projects if not specified
-      const jql = projectKey
-        ? `project = ${projectKey} AND issuetype = Epic`
-        : `issuetype = Epic`;
-
-      const data = await jiraRequest(
-        `/search?jql=${encodeURIComponent(jql)}&maxResults=${limit}`
-      );
-
-      let result = `Found ${data.total} epics${
-        projectKey ? ` in project ${projectKey}` : ""
-      }\n\n`;
-
-      if (data.issues && data.issues.length > 0) {
-        const epics = data.issues.map((epic) => ({
-          key: epic.key,
-          summary: epic.fields.summary,
-          status: epic.fields.status.name,
-          created: epic.fields.created,
-          updated: epic.fields.updated,
-        }));
-
-        result += epics
-          .map(
-            (epic) => `- ${epic.key}: ${epic.summary} (Status: ${epic.status})`
-          )
-          .join("\n");
-      } else {
-        result += "No epics found.";
-      }
-
+  async ({ projectKeyOrId, name, maxResults }) => {
+    if (!validateEnv()) {
       return {
-        content: [{ type: "text", text: result }],
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      // Construct query params
+      const queryParams = new URLSearchParams();
+      if (projectKeyOrId) queryParams.append('projectKeyOrId', projectKeyOrId);
+      if (name) queryParams.append('name', name);
+      queryParams.append('maxResults', maxResults.toString());
+      
+      const endpoint = `/rest/agile/1.0/board?${queryParams.toString()}`;
+      const boardsResponse = await jiraRequest(endpoint);
+      
+      const formattedBoards = boardsResponse.values.map(board => ({
+        id: board.id,
+        name: board.name,
+        type: board.type,
+        location: board.location?.name || 'Unknown',
+        projectKey: board.location?.projectKey || 'Unknown'
+      }));
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(formattedBoards, null, 2) 
+        }]
       };
     } catch (error) {
       return {
-        content: [
-          { type: "text", text: `Error listing epics: ${error.message}` },
-        ],
-        isError: true,
+        content: [{ type: "text", text: error.message }],
+        isError: true
       };
     }
   }
 );
+
+// Tool: Get sprints for a board
+server.tool(
+  "getSprints",
+  {
+    boardId: z.number().min(1, "Board ID is required"),
+    state: z.enum(["active", "future", "closed", "all"]).default("active")
+  },
+  async ({ boardId, state }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      // Construct query params
+      const queryParams = new URLSearchParams();
+      if (state !== "all") {
+        queryParams.append('state', state);
+      }
+      
+      const endpoint = `/rest/agile/1.0/board/${boardId}/sprint?${queryParams.toString()}`;
+      const sprintsResponse = await jiraRequest(endpoint);
+      
+      const formattedSprints = sprintsResponse.values.map(sprint => ({
+        id: sprint.id,
+        name: sprint.name,
+        state: sprint.state,
+        startDate: sprint.startDate || 'Not started',
+        endDate: sprint.endDate || 'Not ended',
+        completeDate: sprint.completeDate || 'Not completed',
+        goal: sprint.goal || 'No goal set'
+      }));
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(formattedSprints, null, 2) 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Add issue to sprint
+server.tool(
+  "addIssueToSprint",
+  {
+    issueKey: z.string().min(1, "Issue key is required"),
+    sprintId: z.number().min(1, "Sprint ID is required")
+  },
+  async ({ issueKey, sprintId }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      // Add issue to sprint
+      const sprintData = {
+        issues: [issueKey]
+      };
+      
+      await jiraRequest(`/rest/agile/1.0/sprint/${sprintId}/issue`, 'POST', sprintData);
+      
+      // Get sprint details for more informative response
+      const sprint = await jiraRequest(`/rest/agile/1.0/sprint/${sprintId}`);
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Issue ${issueKey} has been added to sprint "${sprint.name}" successfully!` 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Get available link types
+server.tool(
+  "getLinkTypes",
+  {},
+  async () => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      const linkTypes = await jiraRequest('/rest/api/3/issueLinkType');
+      
+      const formattedLinkTypes = linkTypes.issueLinkTypes.map(type => ({
+        id: type.id,
+        name: type.name,
+        inward: type.inward,
+        outward: type.outward
+      }));
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(formattedLinkTypes, null, 2) 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Create multiple subtasks
+server.tool(
+  "createMultipleSubtasks",
+  {
+    parentIssueKey: z.string().min(1, "Parent issue key is required"),
+    subtasks: z.array(
+      z.object({
+        summary: z.string().min(1, "Summary is required"),
+        description: z.string().optional(),
+      })
+    ).min(1, "At least one subtask must be provided")
+  },
+  async ({ parentIssueKey, subtasks }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      // First, get the parent issue to determine the project
+      const parentIssue = await jiraRequest(`/rest/api/3/issue/${parentIssueKey}`);
+      
+      const createdSubtasks = [];
+      const errors = [];
+      
+      // Process each subtask
+      for (const subtask of subtasks) {
+        try {
+          const subtaskData = {
+            fields: {
+              project: { id: parentIssue.fields.project.id },
+              summary: subtask.summary,
+              issuetype: { name: "Sub-task" },
+              parent: { key: parentIssueKey }
+            }
+          };
+          
+          if (subtask.description) {
+            subtaskData.fields.description = {
+              type: "doc",
+              version: 1,
+              content: [
+                {
+                  type: "paragraph",
+                  content: [
+                    {
+                      type: "text",
+                      text: subtask.description
+                    }
+                  ]
+                }
+              ]
+            };
+          }
+          
+          const newSubtask = await jiraRequest('/rest/api/3/issue', 'POST', subtaskData);
+          
+          createdSubtasks.push({
+            key: newSubtask.key,
+            summary: subtask.summary,
+            url: `${process.env.JIRA_BASE_URL}/browse/${newSubtask.key}`
+          });
+        } catch (error) {
+          errors.push({
+            summary: subtask.summary,
+            error: error.message
+          });
+        }
+      }
+      
+      // Return results
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Created ${createdSubtasks.length} subtasks for ${parentIssueKey}\n\nCreated subtasks:\n${JSON.stringify(createdSubtasks, null, 2)}\n\n${errors.length > 0 ? `Errors (${errors.length}):\n${JSON.stringify(errors, null, 2)}` : 'No errors occurred.'}` 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Get issue transitions
+server.tool(
+  "getIssueTransitions",
+  {
+    issueKey: z.string().min(1, "Issue key is required")
+  },
+  async ({ issueKey }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      const transitions = await jiraRequest(`/rest/api/3/issue/${issueKey}/transitions`);
+      
+      const formattedTransitions = transitions.transitions.map(transition => ({
+        id: transition.id,
+        name: transition.name,
+        to: {
+          id: transition.to.id,
+          name: transition.to.name
+        }
+      }));
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(formattedTransitions, null, 2) 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Update issue
+server.tool(
+  "updateIssue",
+  {
+    issueKey: z.string().min(1, "Issue key is required"),
+    summary: z.string().optional(),
+    description: z.string().optional(),
+    priority: z.string().optional(),
+    labels: z.array(z.string()).optional()
+  },
+  async ({ issueKey, summary, description, priority, labels }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      const updateData = {
+        fields: {}
+      };
+      
+      if (summary) {
+        updateData.fields.summary = summary;
+      }
+      
+      if (description) {
+        updateData.fields.description = {
+          type: "doc",
+          version: 1,
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                {
+                  type: "text",
+                  text: description
+                }
+              ]
+            }
+          ]
+        };
+      }
+      
+      if (priority) {
+        updateData.fields.priority = { name: priority };
+      }
+      
+      if (labels) {
+        updateData.fields.labels = labels;
+      }
+      
+      // Check if there are fields to update
+      if (Object.keys(updateData.fields).length === 0) {
+        return {
+          content: [{ 
+            type: "text", 
+            text: "No fields specified for update. Please provide at least one field to update." 
+          }],
+          isError: true
+        };
+      }
+      
+      await jiraRequest(`/rest/api/3/issue/${issueKey}`, 'PUT', updateData);
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Issue ${issueKey} has been updated successfully!` 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Create Epic
+server.tool(
+  "createEpic",
+  {
+    projectKey: z.string().min(1, "Project key is required"),
+    summary: z.string().min(1, "Summary is required"),
+    description: z.string().optional(),
+    priority: z.string().optional(),
+    labels: z.array(z.string()).optional()
+  },
+  async ({ projectKey, summary, description, priority, labels }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      // Create Epic issue
+      const epicData = {
+        fields: {
+          project: { key: projectKey },
+          summary,
+          issuetype: { name: "Epic" }
+        }
+      };
+      
+      if (description) {
+        epicData.fields.description = {
+          type: "doc",
+          version: 1,
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                {
+                  type: "text",
+                  text: description
+                }
+              ]
+            }
+          ]
+        };
+      }
+      
+      if (priority) {
+        epicData.fields.priority = { name: priority };
+      }
+      
+      if (labels && labels.length > 0) {
+        epicData.fields.labels = labels;
+      }
+      
+      const newEpic = await jiraRequest('/rest/api/3/issue', 'POST', epicData);
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Epic created successfully!\nKey: ${newEpic.key}\nLink: ${process.env.JIRA_BASE_URL}/browse/${newEpic.key}` 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Tool: Get comments
+server.tool(
+  "getComments",
+  {
+    issueKey: z.string().min(1, "Issue key is required")
+  },
+  async ({ issueKey }) => {
+    if (!validateEnv()) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: "Missing required environment variables. Please configure JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL." 
+        }],
+        isError: true
+      };
+    }
+    
+    try {
+      const response = await jiraRequest(`/rest/api/3/issue/${issueKey}/comment`);
+      
+      const formattedComments = response.comments.map(comment => {
+        // Extract plain text from the document format
+        let commentText = '';
+        try {
+          if (comment.body && comment.body.content) {
+            commentText = extractTextFromCommentBody(comment.body);
+          } else if (typeof comment.body === 'string') {
+            // Handle legacy comment format
+            commentText = comment.body;
+          }
+        } catch (e) {
+          commentText = 'Error extracting comment text';
+        }
+        
+        return {
+          id: comment.id,
+          author: comment.author?.displayName || 'Unknown',
+          created: new Date(comment.created).toLocaleString(),
+          updated: comment.updated ? new Date(comment.updated).toLocaleString() : null,
+          text: commentText
+        };
+      });
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify(formattedComments, null, 2) 
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: error.message }],
+        isError: true
+      };
+    }
+  }
+);
+
+// Helper function to extract text from a comment body
+function extractTextFromCommentBody(body) {
+  if (!body || !body.content) return '';
+  
+  let text = '';
+  
+  // Recursively extract text from the content
+  function extractText(content) {
+    if (!content) return;
+    
+    for (const item of content) {
+      if (item.text) {
+        text += item.text;
+      }
+      
+      if (item.content) {
+        extractText(item.content);
+      }
+      
+      // Add newlines for paragraph and heading elements
+      if (['paragraph', 'heading'].includes(item.type) && text !== '') {
+        text += '\n';
+      }
+    }
+  }
+  
+  extractText(body.content);
+  return text.trim();
+}
 
 // Start server with stdio transport
 const transport = new StdioServerTransport();

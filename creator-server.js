@@ -845,207 +845,157 @@ server.tool(
         };
       }
 
-      let dependencyString = "";
-
-      const currentDir = process.cwd();
-      log(`Current working directory: ${currentDir}`);
-
+      // Use the project directory where the server.js file is located
       const projectDir = CURRENT_DIR;
       log(`Project directory: ${projectDir}`);
 
-      const tempDir = path.join(os.tmpdir(), `mcp-npm-${Date.now()}`);
-      await fs.mkdir(tempDir, { recursive: true });
-      log(`Created temporary directory: ${tempDir}`);
-
-      const projectPackageJsonPath = path.join(projectDir, "package.json");
-
-      const projectPackageJsonStr = await fs.readFile(
-        projectPackageJsonPath,
-        "utf-8"
-      );
-
-      let projectPackageJson;
+      // Check if package.json exists in the project directory, and create one if it doesn't
+      const packageJsonPath = path.join(projectDir, "package.json");
+      let packageJson;
 
       try {
-        projectPackageJson = JSON.parse(projectPackageJsonStr);
+        const packageJsonContent = await fs.readFile(packageJsonPath, "utf-8");
+        packageJson = JSON.parse(packageJsonContent);
+        log("Found existing package.json");
       } catch (err) {
-        log(`Could not parse project package.json, creating a new one`);
-        projectPackageJson = {
+        log("Creating a new package.json file");
+        packageJson = {
           name: "mcp-project",
           version: "1.0.0",
           type: "module",
           dependencies: {},
+          devDependencies: {},
         };
+
+        // Write the initial package.json
+        await fs.writeFile(
+          packageJsonPath,
+          JSON.stringify(packageJson, null, 2)
+        );
       }
 
-      if (!projectPackageJson.dependencies) {
-        projectPackageJson.dependencies = {};
+      // Ensure dependencies object exists
+      if (!packageJson.dependencies) {
+        packageJson.dependencies = {};
       }
 
-      const projectPackageDependencies = projectPackageJson.dependencies;
+      // Ensure devDependencies object exists
+      if (!packageJson.devDependencies) {
+        packageJson.devDependencies = {};
+      }
 
-      const NonExistingDependencies = dependencies.filter(
-        (dep) => !projectPackageDependencies[dep]
+      // Filter out already installed dependencies
+      const missingDependencies = dependencies.filter(
+        (dep) => !packageJson.dependencies[dep.split("@")[0]]
       );
 
-      if (NonExistingDependencies.length === 0) {
+      if (missingDependencies.length === 0) {
         return {
           content: [
             {
               type: "text",
-              text: `All dependencies are already installed.`,
+              text: "All specified dependencies are already installed.",
             },
           ],
-          isError: false,
         };
-      } else {
-        dependencyString = NonExistingDependencies.join(" ");
       }
 
-      const tempPackageJson = {
-        name: "mcp-temp-install",
-        version: "1.0.0",
-        private: true,
-      };
+      // Prepare dependency strings
+      const dependencyString = missingDependencies.join(" ");
 
-      await fs.writeFile(
-        path.join(tempDir, "package.json"),
-        JSON.stringify(tempPackageJson, null, 2)
+      log(
+        `Installing dependencies in directory ${projectDir}: ${dependencyString}`
       );
 
       try {
+        // Change to the project directory before running npm
         const originalDir = process.cwd();
-        process.chdir(tempDir);
-        log(`Changed working directory to: ${tempDir}`);
+        process.chdir(projectDir);
+        log(`Changed working directory to: ${projectDir}`);
 
+        // Install regular dependencies
         const { stdout, stderr } = await execAsync(
-          `npm install ${dependencyString} --no-package-lock --no-audit --no-fund`
+          `npm install ${dependencyString} --save`
         );
 
-        process.chdir(originalDir);
-        log(`Returned to working directory: ${originalDir}`);
-
         if (stderr && !stderr.includes("npm WARN")) {
-          log(`Installation stderr: ${stderr}`);
+          log(`Installation warnings/errors: ${stderr}`);
         }
 
-        log(`Installation stdout: ${stdout}`);
+        log(`Regular dependencies installation output: ${stdout}`);
 
-        const projectNodeModules = path.join(projectDir, "node_modules");
-        log(`Project node_modules path: ${projectNodeModules}`);
-        await fs.mkdir(projectNodeModules, { recursive: true });
+        // Try to install type definitions as dev dependencies
+        log(`Checking for TypeScript type definitions...`);
+        let installedTypes = [];
 
-        for (const dep of NonExistingDependencies) {
-          const baseDep = dep.split("@")[0];
-          const srcPath = path.join(tempDir, "node_modules", baseDep);
-          const destPath = path.join(projectNodeModules, baseDep);
+        for (const dep of missingDependencies) {
+          const basePackage = dep.split("@")[0];
+          const typePackage = `@types/${basePackage}`;
 
           try {
-            // Check if directory exists before copying
-            await fs.access(srcPath);
-            log(`Found dependency at ${srcPath}`);
+            // Check if type package exists
+            log(`Checking if ${typePackage} exists...`);
+            const { stdout: typeVersionOutput } = await execAsync(
+              `npm view ${typePackage} version`
+            );
 
-            // Remove existing directory if it exists
-            try {
-              await fs.access(destPath);
-              await fs.rm(destPath, { recursive: true, force: true });
-              log(`Removed existing ${destPath}`);
-            } catch (err) {
-              // Ignore if directory doesn't exist
-              log(`No existing directory at ${destPath}`);
+            // If we reach here, the package exists, so install it
+            if (typeVersionOutput && typeVersionOutput.trim()) {
+              log(`Installing ${typePackage} as dev dependency...`);
+              await execAsync(`npm install ${typePackage} --save-dev`);
+              installedTypes.push(typePackage);
             }
-
-            // Create parent directory if needed
-            await fs.mkdir(path.dirname(destPath), { recursive: true });
-
-            // Copy recursively using fs instead of exec
-            log(`Copying from ${srcPath} to ${destPath}`);
-            await copyRecursive(srcPath, destPath);
-            log(`Copied ${baseDep} to project node_modules`);
-          } catch (err) {
-            log(`Error copying ${baseDep}: ${err}`);
+          } catch (typeError) {
+            log(`Type definition ${typePackage} not found, skipping`);
           }
         }
 
-        // Update the package.json file with the new dependencies
-        log(`Updating package.json with new dependencies`);
-        //const projectPackageJsonPath = path.join(projectDir, "package.json");
-        try {
-          // Read the package.json from the temp directory to get the installed versions
-          const tempPackageJsonPath = path.join(tempDir, "package.json");
-          const tempPackageJsonStr = await fs.readFile(
-            tempPackageJsonPath,
-            "utf-8"
-          );
-          const tempPackageJson = JSON.parse(tempPackageJsonStr);
+        // Return to original directory
+        process.chdir(originalDir);
+        log(`Returned to original directory: ${originalDir}`);
 
-          // Get the versions of the installed packages
-          const installedDeps = tempPackageJson.dependencies || {};
+        // Read the updated package.json to confirm what was installed
+        const updatedPackageJsonContent = await fs.readFile(
+          packageJsonPath,
+          "utf-8"
+        );
+        const updatedPackageJson = JSON.parse(updatedPackageJsonContent);
 
-          // Read the project's package.json
-          // let projectPackageJson;
-          // try {
-          //   const projectPackageJsonStr = await fs.readFile(
-          //     projectPackageJsonPath,
-          //     "utf-8"
-          //   );
-          //   projectPackageJson = JSON.parse(projectPackageJsonStr);
-          //   projectPackageJson = projectPackageJsonStr;
-          // } catch (err) {
-          //   log(`Could not read project package.json, creating a new one`);
-          //   projectPackageJson = {
-          //     name: "mcp-project",
-          //     version: "1.0.0",
-          //     type: "module",
-          //     dependencies: {},
-          //   };
-          // }
+        // Get the list of successfully installed dependencies
+        const installedDeps = Object.keys(
+          updatedPackageJson.dependencies || {}
+        ).filter((key) =>
+          missingDependencies.some(
+            (dep) => dep.startsWith(key + "@") || dep === key
+          )
+        );
 
-          // Ensure dependencies section exists
-          // if (!projectPackageJson.dependencies) {
-          //   projectPackageJson.dependencies = {};
-          // }
+        let successMessage = `Successfully installed dependencies: ${installedDeps.join(
+          ", "
+        )}`;
 
-          // Add the new dependencies with their versions
-          let dependenciesAdded = false;
-          for (const dep of NonExistingDependencies) {
-            const baseDep = dep.split("@")[0]; // Handle version specifiers
-            if (installedDeps[baseDep]) {
-              projectPackageJson.dependencies[baseDep] = installedDeps[baseDep];
-              dependenciesAdded = true;
-              log(`Added ${baseDep}@${installedDeps[baseDep]} to package.json`);
-            }
-          }
-
-          if (dependenciesAdded) {
-            // Write the updated package.json
-            await fs.writeFile(
-              projectPackageJsonPath,
-              JSON.stringify(projectPackageJson, null, 2)
-            );
-            log(`Updated package.json successfully`);
-          } else {
-            log(`No dependencies were added to package.json`);
-          }
-        } catch (packageJsonErr) {
-          log(`Error updating package.json: ${packageJsonErr}`);
+        if (installedTypes.length > 0) {
+          successMessage += `\nAlso installed TypeScript type definitions: ${installedTypes.join(
+            ", "
+          )}`;
         }
 
         return {
           content: [
             {
               type: "text",
-              text: `Successfully installed dependencies: ${dependencyString}`,
+              text: successMessage,
             },
           ],
         };
-      } catch (error) {
-        log(`Installation error: ${error}`);
-
-        // Attempt to return to original directory if needed
+      } catch (installError) {
+        // Ensure we change back to original directory if there was an error
         try {
-          process.chdir(currentDir);
-          log(`Ensured return to original directory: ${currentDir}`);
+          const currentDir = process.cwd();
+          if (currentDir !== originalDir) {
+            process.chdir(originalDir);
+            log(`Returned to original directory after error: ${originalDir}`);
+          }
         } catch (cdErr) {
           log(`Error returning to original directory: ${cdErr}`);
         }
@@ -1055,21 +1005,14 @@ server.tool(
             {
               type: "text",
               text: `Error installing dependencies: ${
-                error instanceof Error ? error.message : String(error)
-              }\n\nPlease try installing manually by running: npm install ${dependencies.join(
-                " "
-              )}`,
+                installError instanceof Error
+                  ? installError.message
+                  : String(installError)
+              }\n\nPlease try installing manually by going to ${projectDir} and running: npm install ${dependencyString}`,
             },
           ],
           isError: true,
         };
-      } finally {
-        try {
-          await fs.rm(tempDir, { recursive: true, force: true });
-          log(`Cleaned up temporary directory`);
-        } catch (cleanError) {
-          log(`Error cleaning up temporary directory: ${cleanError}`);
-        }
       }
     } catch (outerError) {
       log(`Outer installation error: ${outerError}`);
@@ -1077,13 +1020,11 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `Error installing dependencies: ${
+            text: `Error in dependency installation process: ${
               outerError instanceof Error
                 ? outerError.message
                 : String(outerError)
-            }\n\nPlease try installing manually by running: npm install ${dependencies.join(
-              " "
-            )}`,
+            }`,
           },
         ],
         isError: true,
