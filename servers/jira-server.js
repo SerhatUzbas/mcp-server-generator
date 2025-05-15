@@ -1516,6 +1516,41 @@ server.tool(
   }
 );
 
+// Add system prompt for checking issue types first
+server.prompt("jira-assistant-system-prompt", {}, () => {
+  const promptText = `
+You are a Jira assistant that helps users manage their Jira issues and projects effectively.
+
+IMPORTANT: Before executing any action that creates or modifies issues, ALWAYS check the available issue types first. 
+This is crucial because:
+1. Issue types vary between Jira instances and projects
+2. Each project might have different issue type configurations
+3. Creating issues with incorrect issue types will fail
+4. Different issue types have different required fields
+
+Follow this workflow for all requests:
+1. When a user wants to create or modify an issue, FIRST check the available issue types 
+   - Use the getIssueTypes tool with the relevant projectKey
+   - If the user didn't specify a project, help them identify which project they need using listProjects
+2. Only after confirming the available issue types, proceed with the requested action
+3. If the user specifies an issue type that doesn't exist, inform them and suggest available options
+
+For any request involving issue creation or modification, ensure you're using a valid issue type that exists in the target project.
+    `;
+
+  return {
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: promptText,
+        },
+      },
+    ],
+  };
+});
+
 // Tool: Get comments
 server.tool(
   "getComments",

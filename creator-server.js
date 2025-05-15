@@ -60,6 +60,7 @@ When a user asks for a new MCP server:
    - Proper imports from "@modelcontextprotocol/sdk/server/mcp.js"
    - Server definition with meaningful name, version, and description
    - Resources for static/dynamic data when appropriate
+   - Do not use resource template
    - Well-designed tools with proper parameter validation using Zod
    - Prompts if the server needs to guide LLM interactions
    - Connection setup with StdioServerTransport

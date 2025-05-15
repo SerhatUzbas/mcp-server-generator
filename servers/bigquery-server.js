@@ -1127,6 +1127,8 @@ server.tool(
 
 // Add prompts to help guide Claude's interactions with BigQuery
 
+
+
 // Prompt: To help analyze BigQuery data
 server.prompt(
   "analyze-bigquery-data",
