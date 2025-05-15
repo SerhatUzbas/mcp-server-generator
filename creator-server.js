@@ -1,4 +1,3 @@
-// creator-server.ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { TEMPLATE_MCP_SERVER } from "./template.js";
@@ -33,15 +32,6 @@ const server = new McpServer({
 });
 
 const execAsync = promisify(exec);
-
-server.resource("template", "mcp-template://default", async (uri) => ({
-  contents: [
-    {
-      uri: uri.href,
-      text: TEMPLATE_MCP_SERVER,
-    },
-  ],
-}));
 
 server.prompt("system prompt", {}, () => ({
   messages: [
@@ -286,9 +276,6 @@ server.tool(
         };
       }
 
-      // This is the critical step: We write the file to disk FIRST, before doing anything else.
-      // This ensures that even if the context window limit is reached during the conversation,
-      // the file has already been saved and can be accessed in a new conversation.
       console.log(
         `[createMcpServer] Writing server "${serverName}" to file: ${filePath}`
       );
@@ -311,7 +298,6 @@ server.tool(
         }
       }
 
-      // Add line numbers to the code for better reference
       const lines = serverCode.split("\n");
       const numberedLines = lines.map(
         (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
@@ -569,7 +555,6 @@ server.tool(
         };
       }
 
-      // For full update, just replace the entire file
       if (updateType === "full") {
         await fs.writeFile(filePath, code);
 
@@ -577,7 +562,6 @@ server.tool(
           ? `\nUpdate details: ${description}`
           : "";
 
-        // Add line numbers to the updated content
         const updatedLines = code.split("\n");
         const numberedLines = updatedLines.map(
           (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
@@ -594,11 +578,9 @@ server.tool(
         };
       }
 
-      // For section or add updates, read the current file
       const serverCode = await fs.readFile(filePath, "utf-8");
       const lines = serverCode.split("\n");
 
-      // Handle section update
       if (updateType === "section") {
         if (!startLine || !endLine) {
           return {
@@ -612,7 +594,6 @@ server.tool(
           };
         }
 
-        // Validate line numbers
         if (startLine > lines.length || endLine > lines.length) {
           return {
             content: [
@@ -668,7 +649,6 @@ server.tool(
         };
       }
 
-      // Handle add update
       if (updateType === "add") {
         if (!insertAfterLine) {
           return {
@@ -682,7 +662,6 @@ server.tool(
           };
         }
 
-        // Validate line number
         if (insertAfterLine > lines.length) {
           return {
             content: [
@@ -695,23 +674,18 @@ server.tool(
           };
         }
 
-        // Split the new code into lines
         const newLines = code.split("\n");
 
-        // Insert the new code after the specified line
         const updatedLines = [
           ...lines.slice(0, insertAfterLine),
           ...newLines,
           ...lines.slice(insertAfterLine),
         ];
 
-        // Join the lines back together
         const updatedCode = updatedLines.join("\n");
 
-        // Write the updated code back to the file
         await fs.writeFile(filePath, updatedCode);
 
-        // Add line numbers to the updated content
         const numberedLines = updatedLines.map(
           (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
         );
@@ -731,7 +705,6 @@ server.tool(
         };
       }
 
-      // This should never happen due to zod validation, but just in case
       return {
         content: [
           {
@@ -790,7 +763,6 @@ server.tool(
 
       const serverCode = await fs.readFile(filePath, "utf-8");
 
-      // Add line numbers to the code for better reference
       const lines = serverCode.split("\n");
       const numberedLines = lines.map(
         (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
@@ -845,11 +817,9 @@ server.tool(
         };
       }
 
-      // Use the project directory where the server.js file is located
       const projectDir = CURRENT_DIR;
       log(`Project directory: ${projectDir}`);
 
-      // Check if package.json exists in the project directory, and create one if it doesn't
       const packageJsonPath = path.join(projectDir, "package.json");
       let packageJson;
 
@@ -867,24 +837,20 @@ server.tool(
           devDependencies: {},
         };
 
-        // Write the initial package.json
         await fs.writeFile(
           packageJsonPath,
           JSON.stringify(packageJson, null, 2)
         );
       }
 
-      // Ensure dependencies object exists
       if (!packageJson.dependencies) {
         packageJson.dependencies = {};
       }
 
-      // Ensure devDependencies object exists
       if (!packageJson.devDependencies) {
         packageJson.devDependencies = {};
       }
 
-      // Filter out already installed dependencies
       const missingDependencies = dependencies.filter(
         (dep) => !packageJson.dependencies[dep.split("@")[0]]
       );
@@ -900,7 +866,6 @@ server.tool(
         };
       }
 
-      // Prepare dependency strings
       const dependencyString = missingDependencies.join(" ");
 
       log(
@@ -908,12 +873,10 @@ server.tool(
       );
 
       try {
-        // Change to the project directory before running npm
         const originalDir = process.cwd();
         process.chdir(projectDir);
         log(`Changed working directory to: ${projectDir}`);
 
-        // Install regular dependencies
         const { stdout, stderr } = await execAsync(
           `npm install ${dependencyString} --save`
         );
@@ -924,7 +887,6 @@ server.tool(
 
         log(`Regular dependencies installation output: ${stdout}`);
 
-        // Try to install type definitions as dev dependencies
         log(`Checking for TypeScript type definitions...`);
         let installedTypes = [];
 
@@ -933,13 +895,11 @@ server.tool(
           const typePackage = `@types/${basePackage}`;
 
           try {
-            // Check if type package exists
             log(`Checking if ${typePackage} exists...`);
             const { stdout: typeVersionOutput } = await execAsync(
               `npm view ${typePackage} version`
             );
 
-            // If we reach here, the package exists, so install it
             if (typeVersionOutput && typeVersionOutput.trim()) {
               log(`Installing ${typePackage} as dev dependency...`);
               await execAsync(`npm install ${typePackage} --save-dev`);
@@ -950,18 +910,15 @@ server.tool(
           }
         }
 
-        // Return to original directory
         process.chdir(originalDir);
         log(`Returned to original directory: ${originalDir}`);
 
-        // Read the updated package.json to confirm what was installed
         const updatedPackageJsonContent = await fs.readFile(
           packageJsonPath,
           "utf-8"
         );
         const updatedPackageJson = JSON.parse(updatedPackageJsonContent);
 
-        // Get the list of successfully installed dependencies
         const installedDeps = Object.keys(
           updatedPackageJson.dependencies || {}
         ).filter((key) =>
@@ -989,7 +946,6 @@ server.tool(
           ],
         };
       } catch (installError) {
-        // Ensure we change back to original directory if there was an error
         try {
           const currentDir = process.cwd();
           if (currentDir !== originalDir) {
@@ -1033,7 +989,6 @@ server.tool(
   }
 );
 
-// Helper function to recursively copy directories
 async function copyRecursive(src, dest) {
   const stats = await fs.stat(src);
 
@@ -1051,7 +1006,6 @@ async function copyRecursive(src, dest) {
   }
 }
 
-// Tool to analyze server dependencies
 server.tool(
   "analyzeServerDependencies",
   {
@@ -1059,12 +1013,10 @@ server.tool(
   },
   async ({ serverName }) => {
     try {
-      // Strip .js extension if it's already included in the serverName
       const nameWithoutExtension = serverName.endsWith(".js")
         ? serverName.slice(0, -3)
         : serverName;
 
-      // Sanitize the server name for use as a filename
       const sanitizedName = nameWithoutExtension.replace(
         /[^a-zA-Z0-9-_]/g,
         "_"
@@ -1072,7 +1024,6 @@ server.tool(
       const filename = `${sanitizedName}.js`;
       const filePath = path.join(SERVERS_DIR, filename);
 
-      // Check if the server exists
       const exists = await fileExists(filePath);
       if (!exists) {
         return {
@@ -1086,10 +1037,8 @@ server.tool(
         };
       }
 
-      // Read the server file content
       const serverCode = await fs.readFile(filePath, "utf-8");
 
-      // Simple regex to find import statements
       const importRegex = /import\s+(?:[\w\s{},*]+from\s+)?['"]([^'"]+)['"]/g;
       const imports = [];
       let match;
@@ -1098,7 +1047,6 @@ server.tool(
         imports.push(match[1]);
       }
 
-      // Filter out built-in Node.js modules and SDK imports
       const nodeBuiltins = [
         "fs",
         "path",
@@ -1112,7 +1060,6 @@ server.tool(
       const sdkImports = ["@modelcontextprotocol/sdk"];
 
       const externalDependencies = imports.filter((imp) => {
-        // Check if it's not a relative import, built-in module, or SDK import
         const isRelative =
           imp.startsWith("./") || imp.startsWith("../") || imp.startsWith("/");
         const isBuiltin = nodeBuiltins.some(
@@ -1125,18 +1072,15 @@ server.tool(
         return !isRelative && !isBuiltin && !isSdk;
       });
 
-      // Extract package names (remove trailing paths)
       const packageNames = externalDependencies.map((dep) => {
         const parts = dep.split("/");
         if (dep.startsWith("@")) {
-          // Handle scoped packages like @org/package
           return `${parts[0]}/${parts[1]}`;
         } else {
           return parts[0];
         }
       });
 
-      // Remove duplicates
       const uniquePackages = [...new Set(packageNames)];
 
       return {
@@ -1200,13 +1144,10 @@ server.tool(
         };
       }
 
-      // Run the server using Node.js and capture stdout/stderr
       const { spawn } = await import("child_process");
 
-      // Run without passing environment variables
       const nodeProcess = spawn("node", [filePath], {
         stdio: ["pipe", "pipe", "pipe"],
-        // Not passing environment variables
       });
 
       let stdout = "";
@@ -1222,12 +1163,10 @@ server.tool(
         hasError = true;
       });
 
-      // Set a timeout to kill the process after the specified time
       const timeoutId = setTimeout(() => {
         nodeProcess.kill();
       }, timeout);
 
-      // Wait for the process to exit or timeout
       await new Promise((resolve) => {
         nodeProcess.on("exit", (code) => {
           clearTimeout(timeoutId);
@@ -1238,7 +1177,6 @@ server.tool(
         });
       });
 
-      // Prepare the response
       let resultText = "";
       if (hasError) {
         resultText = `Server "${nameWithoutExtension}" encountered errors during execution:\n\n`;
@@ -1308,7 +1246,6 @@ async function registerServerWithClaude(serverName, serverPath) {
     config.mcpServers = {};
   }
 
-  // Create server entry with command, args, and empty env object for future environment variables
   config.mcpServers[serverName] = {
     command: "node",
     args: [serverPath],
