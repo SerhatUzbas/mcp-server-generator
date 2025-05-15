@@ -17,7 +17,6 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
 
 - [Node.js](https://nodejs.org/) (v16 or later)
 - [Claude Desktop](https://claude.ai/desktop) installed
-- TypeScript SDK for Model Context Protocol
 
 ### Installation
 
@@ -45,10 +44,9 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
    {
      "mcpServers": {
        "serverGenerator": {
-         "command": "npx",
+         "command": "node",
          "args": [
-           "tsx",
-           "/Users/username/Documents/GitHub/mcprotocol/creator-server.ts"
+           "/Users/username/Documents/GitHub/mcprotocol/creator-server.js"
          ]
        }
      }
