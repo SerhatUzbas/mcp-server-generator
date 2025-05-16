@@ -8,7 +8,6 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
 
 - Creating new MCP servers
 - Updating existing servers
-- Managing dependencies
 - Registering servers with Claude Desktop
 
 ## Getting Started
@@ -27,7 +26,7 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
    cd mcprotocol
    ```
 
-2. Install dependencies:
+2. Install dependencies (only first installation):
 
    ```bash
    npm install
@@ -35,7 +34,7 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
 
 3. Register the creator server with Claude Desktop:
 
-   Macos: ~/Library/Application Support/Claude/claude_desktop_config.json for macos users
+   Macos: ~/Library/Application Support/Claude/claude_desktop_config.json
    Windows: %APPDATA%\Claude\claude_desktop_config.json
 
    example:
@@ -69,46 +68,19 @@ Ask Claude to create a server for your specific needs:
 Create an MCP server that integrates with the OpenWeather API to provide weather forecasts.
 ```
 
-Claude will:
-
-1. Generate the server code
-2. Save it to the `servers` directory
-3. Register it with Claude Desktop
-4. Identify and install required dependencies
-
-### Managing Existing Servers
-
-#### Listing Servers
+or try more higher level explanation:
 
 ```
-List all available MCP servers.
+Create an MCP server that retrieves the weather forecast that i request.
 ```
 
-#### Viewing Server Code
+Claude will (probably):
 
-```
-Show me the code for [server name].
-```
-
-#### Updating a Server
-
-```
-Update the [server name] server to add [new functionality].
-```
-
-### Working with Dependencies
-
-#### Analyzing Dependencies
-
-```
-Analyze the dependencies for [server name].
-```
-
-#### Installing Dependencies
-
-```
-Install dependencies for [server name].
-```
+1. Check the server list if it exist
+2. Generate the server code
+3. Save it to the `servers` directory
+4. Register it with Claude Desktop
+5. Identify and install required dependencies
 
 ## Available Tools
 
@@ -117,11 +89,12 @@ The MCP Server Creator provides several tools for managing your servers:
 - `listServers` - List all available servers
 - `getServerContent` - View the code of an existing server
 - `createMcpServer` - Create a new server
-- `updateServer` - Update an existing server
+- `updateMcpServer` - Update an existing server
 - `analyzeServerDependencies` - Identify required npm packages
 - `installServerDependencies` - Install required packages
 - `getClaudeConfig` - View current Claude Desktop configuration
 - `updateClaudeConfig` - Update Claude Desktop configuration
+- `runServerDirectly` - Checks if any error appears when running
 
 ## Troubleshooting
 
