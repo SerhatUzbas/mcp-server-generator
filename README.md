@@ -15,7 +15,7 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) (v16 or later)
-- [Claude Desktop](https://claude.ai/desktop) installed
+- [Claude Desktop](https://claude.ai/download) installed
 
 ### Installation
 
