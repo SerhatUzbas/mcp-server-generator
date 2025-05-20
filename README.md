@@ -34,8 +34,13 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
 
 3. Register the creator server with Claude Desktop:
 
-- Macos: ~/Library/Application Support/Claude/claude_desktop_config.json
+- Macos:
+   ```bash
+   sudo open ~/Library/"Application Support"/Claude/claude_desktop_config.json
+   ``` 
 - Windows: %APPDATA%\Claude\claude_desktop_config.json
+
+- Or from Claude Desktop: Settings > Developer > Edit Config
 
 example:
 
