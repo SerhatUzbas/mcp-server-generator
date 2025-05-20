@@ -36,7 +36,7 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
 
 - Macos:
    ```bash
-   sudo open ~/Library/"Application Support"/Claude/claude_desktop_config.json
+   open ~/Library/"Application Support"/Claude/claude_desktop_config.json
    ``` 
 - Windows: %APPDATA%\Claude\claude_desktop_config.json
 
