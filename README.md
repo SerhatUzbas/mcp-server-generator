@@ -38,7 +38,11 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
    ```bash
    open ~/Library/"Application Support"/Claude/claude_desktop_config.json
    ``` 
-- Windows: %APPDATA%\Claude\claude_desktop_config.json
+- Windows:
+   ```bash
+   start %APPDATA%\Claude\claude_desktop_config.json
+   ``` 
+  
 
 - Or from Claude Desktop: Settings > Developer > Edit Config
 
