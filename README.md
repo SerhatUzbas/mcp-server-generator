@@ -35,14 +35,14 @@ The MCP Server Creator helps you create, manage, and register custom MCP servers
 3. Register the creator server with Claude Desktop:
 
 - Macos:
-   ```bash
-   open ~/Library/"Application Support"/Claude/claude_desktop_config.json
-   ``` 
-- Windows:
-   ```bash
-   start %APPDATA%\Claude\claude_desktop_config.json
-   ``` 
-  
+  ```bash
+  open ~/Library/"Application Support"/Claude/claude_desktop_config.json
+  ```
+- Windows (Command Prompt):
+
+  ```bash
+  start %APPDATA%\Claude\claude_desktop_config.json
+  ```
 
 - Or from Claude Desktop: Settings > Developer > Edit Config
 
@@ -51,13 +51,28 @@ example:
 ```json
 {
   "mcpServers": {
-    "serverGenerator": {
+    "mcp-server-generator": {
       "command": "node",
       "args": ["/Users/username/Documents/GitHub/mcprotocol/creator-server.js"]
     }
   }
 }
 ```
+
+> **Note for Windows users:** Remember to use backslashes for file paths and escape them properly in your JSON configuration. Example:
+>
+> ```json
+> {
+>   "mcpServers": {
+>     "mcp-server-generator": {
+>       "command": "node",
+>       "args": [
+>         "C:\\Users\\username\\Documents\\GitHub\\mcprotocol\\creator-server.js"
+>       ]
+>     }
+>   }
+> }
+> ```
 
 ## Using the MCP Server Creator
 
