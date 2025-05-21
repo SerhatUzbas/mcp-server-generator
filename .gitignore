@@ -1,5 +1,6 @@
 # Node modules
 node_modules/
+package-lock.json
 
 # Logs
 logs
@@ -47,5 +48,5 @@ Thumbs.db
 READMEFORME.md
 
 google_auth.json
-demo-jira.js
+rrr.js
 olds
