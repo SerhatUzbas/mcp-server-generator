@@ -15,16 +15,11 @@
   "author": "Serhat Uzbaş",
   "license": "MIT",
   "dependencies": {
-    "@faker-js/faker": "^9.8.0",
     "@google-cloud/bigquery": "^8.0.0",
     "@modelcontextprotocol/sdk": "^1.11.2",
-    "chalk": "^5.4.1",
     "node-fetch": "^2.7.0",
     "pg": "^8.16.0",
     "puppeteer": "^24.8.2",
     "zod": "^3.22.4"
-  },
-  "devDependencies": {
-    "@types/chalk": "^0.4.31"
   }
 }
