@@ -786,28 +786,29 @@ server.tool(
 
         log(`Regular dependencies installation output: ${stdout}`);
 
-        log(`Checking for TypeScript type definitions...`);
-        let installedTypes = [];
+        // log(`Checking for TypeScript type definitions...`);
 
-        for (const dep of missingDependencies) {
-          const basePackage = dep.split("@")[0];
-          const typePackage = `@types/${basePackage}`;
+        // let installedTypes = [];
 
-          try {
-            log(`Checking if ${typePackage} exists...`);
-            const { stdout: typeVersionOutput } = await execAsync(
-              `npm view ${typePackage} version`
-            );
+        // for (const dep of missingDependencies) {
+        //   const basePackage = dep.split("@")[0];
+        //   const typePackage = `@types/${basePackage}`;
 
-            if (typeVersionOutput && typeVersionOutput.trim()) {
-              log(`Installing ${typePackage} as dev dependency...`);
-              await execAsync(`npm install ${typePackage} --save-dev`);
-              installedTypes.push(typePackage);
-            }
-          } catch (typeError) {
-            log(`Type definition ${typePackage} not found, skipping`);
-          }
-        }
+        //   try {
+        //     log(`Checking if ${typePackage} exists...`);
+        //     const { stdout: typeVersionOutput } = await execAsync(
+        //       `npm view ${typePackage} version`
+        //     );
+
+        //     if (typeVersionOutput && typeVersionOutput.trim()) {
+        //       log(`Installing ${typePackage} as dev dependency...`);
+        //       await execAsync(`npm install ${typePackage} --save-dev`);
+        //       installedTypes.push(typePackage);
+        //     }
+        //   } catch (typeError) {
+        //     log(`Type definition ${typePackage} not found, skipping`);
+        //   }
+        // }
 
         process.chdir(originalDir);
         log(`Returned to original directory: ${originalDir}`);
@@ -830,11 +831,11 @@ server.tool(
           ", "
         )}`;
 
-        if (installedTypes.length > 0) {
-          successMessage += `\nAlso installed TypeScript type definitions: ${installedTypes.join(
-            ", "
-          )}`;
-        }
+        // if (installedTypes.length > 0) {
+        //   successMessage += `\nAlso installed TypeScript type definitions: ${installedTypes.join(
+        //     ", "
+        //   )}`;
+        // }
 
         return {
           content: [
