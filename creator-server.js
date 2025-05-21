@@ -8,49 +8,23 @@ import { z } from "zod";
 import path from "path";
 import os from "os";
 
-const CLAUDE_CONFIG_PATH = (() => {
-  // Detect operating system and set appropriate config path
-  if (process.platform === "darwin") {
-    // macOS
-    return path.join(
-      os.homedir(),
-      "Library/Application Support/Claude/claude_desktop_config.json"
-    );
-  } else if (process.platform === "win32") {
-    // Windows
-    // %APPDATA% resolves to AppData/Roaming
-    return path.join(
-      process.env.APPDATA,
-      "Claude",
-      "claude_desktop_config.json"
-    );
-  } else {
-    // Linux and others
-    return path.join(
-      os.homedir(),
-      ".config",
-      "Claude",
-      "claude_desktop_config.json"
-    );
-  }
-})();
+const CLAUDE_CONFIG_PATH =
+  process.platform === "win32"
+    ? path.join(process.env.APPDATA, "Claude", "claude_desktop_config.json") // %APPDATA% resolves to the right location on Windows
+    : path.join(
+        os.homedir(),
+        "Library/Application Support/Claude/claude_desktop_config.json"
+      );
 
-// Fix for file:// URL path handling across platforms
-const CURRENT_DIR = (() => {
-  if (import.meta.url) {
-    const fileUrl = new URL(import.meta.url);
-    // Convert URL to proper system path - handles Windows paths correctly
-    return path.normalize(
+const CURRENT_DIR = import.meta.url
+  ? path.dirname(
       process.platform === "win32"
-        ? fileUrl.pathname.substring(1) // Remove leading slash on Windows
-        : fileUrl.pathname
-    );
-  } else {
-    return __dirname;
-  }
-})();
+        ? new URL(import.meta.url).pathname.substring(1) // Remove leading slash on Windows
+        : new URL(import.meta.url).pathname
+    )
+  : __dirname;
 
-const SERVERS_DIR = path.join(path.dirname(CURRENT_DIR), "servers");
+const SERVERS_DIR = path.join(CURRENT_DIR, "servers");
 
 const TYPESCRIPT_SDK_URL =
   "https://github.com/modelcontextprotocol/typescript-sdk";
