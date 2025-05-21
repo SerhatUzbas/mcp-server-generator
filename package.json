@@ -22,13 +22,5 @@
     "pg": "^8.16.0",
     "puppeteer": "^24.8.2",
     "zod": "^3.22.4"
-  },
-  "devDependencies": {
-    "@types/isomorphic-fetch": "^0.0.39",
-    "@types/node": "^20.10.0",
-    "@types/node-fetch": "^2.6.12",
-    "@types/pg": "^8.15.1",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
   }
 }
