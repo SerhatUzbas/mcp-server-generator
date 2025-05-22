@@ -284,13 +284,7 @@ server.tool(
         };
       }
 
-      console.log(
-        `[createMcpServer] Writing server "${serverName}" to file: ${filePath}`
-      );
       await fs.writeFile(filePath, serverCode);
-      console.log(
-        `[createMcpServer] Server successfully saved to disk at: ${filePath}`
-      );
 
       let registrationMessage = "";
       if (registerWithClaude) {
@@ -700,9 +694,6 @@ server.tool(
       .describe("List of npm packages to install"),
   },
   async ({ dependencies }) => {
-    const log = (msg) =>
-      process.stdout.write(`[installServerDependencies] ${msg}\n`);
-
     try {
       if (!dependencies || dependencies.length === 0) {
         return {
@@ -717,7 +708,6 @@ server.tool(
       }
 
       const projectDir = CURRENT_DIR;
-      log(`Project directory: ${projectDir}`);
 
       const packageJsonPath = path.join(projectDir, "package.json");
       let packageJson;
@@ -725,9 +715,7 @@ server.tool(
       try {
         const packageJsonContent = await fs.readFile(packageJsonPath, "utf-8");
         packageJson = JSON.parse(packageJsonContent);
-        log("Found existing package.json");
       } catch (err) {
-        log("Creating a new package.json file");
         packageJson = {
           name: "mcp-project",
           version: "1.0.0",
@@ -767,26 +755,16 @@ server.tool(
 
       const dependencyString = missingDependencies.join(" ");
 
-      log(
-        `Installing dependencies in directory ${projectDir}: ${dependencyString}`
-      );
-
       try {
         const originalDir = process.cwd();
         process.chdir(projectDir);
-        log(`Changed working directory to: ${projectDir}`);
 
         const { stdout, stderr } = await execAsync(
           `npm install ${dependencyString} --save`
         );
 
         if (stderr && !stderr.includes("npm WARN")) {
-          log(`Installation warnings/errors: ${stderr}`);
         }
-
-        log(`Regular dependencies installation output: ${stdout}`);
-
-        // log(`Checking for TypeScript type definitions...`);
 
         // let installedTypes = [];
 
@@ -795,23 +773,22 @@ server.tool(
         //   const typePackage = `@types/${basePackage}`;
 
         //   try {
-        //     log(`Checking if ${typePackage} exists...`);
+
         //     const { stdout: typeVersionOutput } = await execAsync(
         //       `npm view ${typePackage} version`
         //     );
 
         //     if (typeVersionOutput && typeVersionOutput.trim()) {
-        //       log(`Installing ${typePackage} as dev dependency...`);
+
         //       await execAsync(`npm install ${typePackage} --save-dev`);
         //       installedTypes.push(typePackage);
         //     }
         //   } catch (typeError) {
-        //     log(`Type definition ${typePackage} not found, skipping`);
+
         //   }
         // }
 
         process.chdir(originalDir);
-        log(`Returned to original directory: ${originalDir}`);
 
         const updatedPackageJsonContent = await fs.readFile(
           packageJsonPath,
@@ -850,11 +827,8 @@ server.tool(
           const currentDir = process.cwd();
           if (currentDir !== originalDir) {
             process.chdir(originalDir);
-            log(`Returned to original directory after error: ${originalDir}`);
           }
-        } catch (cdErr) {
-          log(`Error returning to original directory: ${cdErr}`);
-        }
+        } catch (cdErr) {}
 
         return {
           content: [
@@ -871,7 +845,6 @@ server.tool(
         };
       }
     } catch (outerError) {
-      log(`Outer installation error: ${outerError}`);
       return {
         content: [
           {
