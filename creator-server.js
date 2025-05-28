@@ -1,51 +1,47 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { TEMPLATE_MCP_SERVER } from "./template.js";
-import { exec } from "child_process";
-import { promisify } from "util";
-import fs from "fs/promises";
-import { z } from "zod";
-import path from "path";
-import os from "os";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { TEMPLATE_MCP_SERVER } from './template.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import fs from 'fs/promises';
+import { z } from 'zod';
+import path from 'path';
+import os from 'os';
 
 const CLAUDE_CONFIG_PATH =
-  process.platform === "win32"
-    ? path.join(process.env.APPDATA, "Claude", "claude_desktop_config.json") // %APPDATA% resolves to the right location on Windows
-    : path.join(
-        os.homedir(),
-        "Library/Application Support/Claude/claude_desktop_config.json"
-      );
+  process.platform === 'win32'
+    ? path.join(process.env.APPDATA, 'Claude', 'claude_desktop_config.json')
+    : path.join(os.homedir(), 'Library/Application Support/Claude/claude_desktop_config.json');
 
 const CURRENT_DIR = import.meta.url
   ? path.dirname(
-      process.platform === "win32"
-        ? new URL(import.meta.url).pathname.substring(1) // Remove leading slash on Windows
+      process.platform === 'win32'
+        ? new URL(import.meta.url).pathname.substring(1)
         : new URL(import.meta.url).pathname
     )
   : __dirname;
 
-const SERVERS_DIR = path.join(CURRENT_DIR, "servers");
+const SERVERS_DIR = path.join(CURRENT_DIR, 'servers');
 
-const TYPESCRIPT_SDK_URL =
-  "https://github.com/modelcontextprotocol/typescript-sdk";
+const TYPESCRIPT_SDK_URL = 'https://github.com/modelcontextprotocol/typescript-sdk';
 
 const TYPESCRIPT_SDK_README_URL =
-  "https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/main/README.md";
+  'https://raw.githubusercontent.com/modelcontextprotocol/typescript-sdk/main/README.md';
 
 const server = new McpServer({
-  name: "MCP Server Creator",
-  version: "1.0.0",
-  description: "Create custom MCP servers with AI assistance",
+  name: 'MCP Server Creator',
+  version: '1.0.0',
+  description: 'Create custom MCP servers with AI assistance'
 });
 
 const execAsync = promisify(exec);
 
-server.prompt("system prompt", {}, () => ({
+server.prompt('system prompt', {}, () => ({
   messages: [
     {
-      role: "user",
+      role: 'user',
       content: {
-        type: "text",
+        type: 'text',
         text: `# MCP Server Creator Assistant
 
 ## YOUR ROLE AND BEHAVIOR
@@ -174,22 +170,20 @@ When explaining how to update the Claude Desktop config for environment variable
     }
   }
 }
-\`\`\``,
-      },
-    },
-  ],
+\`\`\``
+      }
+    }
+  ]
 }));
 
-server.resource("sdk-info", "mcp-docs://typescript-sdk", async (uri) => {
+server.resource('sdk-info', 'mcp-docs://typescript-sdk', async (uri) => {
   try {
-    const { default: fetch } = await import("node-fetch");
+    const { default: fetch } = await import('node-fetch');
 
     const response = await fetch(TYPESCRIPT_SDK_README_URL);
 
     if (!response.ok) {
-      throw new Error(
-        `Failed to fetch from GitHub: ${response.status} ${response.statusText}`
-      );
+      throw new Error(`Failed to fetch from GitHub: ${response.status} ${response.statusText}`);
     }
 
     const readmeContent = await response.text();
@@ -204,9 +198,9 @@ server.resource("sdk-info", "mcp-docs://typescript-sdk", async (uri) => {
       contents: [
         {
           uri: uri.href,
-          text: contentWithHeader,
-        },
-      ],
+          text: contentWithHeader
+        }
+      ]
     };
   } catch (error) {
     return {
@@ -215,58 +209,56 @@ server.resource("sdk-info", "mcp-docs://typescript-sdk", async (uri) => {
           uri: uri.href,
           text: `Error fetching SDK info: ${
             error instanceof Error ? error.message : String(error)
-          }\n\nPlease visit ${TYPESCRIPT_SDK_URL} directly to view the documentation.`,
-        },
+          }\n\nPlease visit ${TYPESCRIPT_SDK_URL} directly to view the documentation.`
+        }
       ],
-      isError: true,
+      isError: true
     };
   }
 });
 
-server.tool("listServers", {}, async () => {
+server.tool('listServers', {}, async () => {
   try {
     await fs.mkdir(SERVERS_DIR, { recursive: true });
     const files = await fs.readdir(SERVERS_DIR);
-    const jsFiles = files.filter((file) => file.endsWith(".js"));
+    const jsFiles = files.filter((file) => file.endsWith('.js'));
 
     return {
       content: [
         {
-          type: "text",
+          type: 'text',
           text:
             jsFiles.length > 0
-              ? `Available MCP servers:\n${jsFiles.join("\n")}`
-              : "No MCP servers found.",
-        },
-      ],
+              ? `Available MCP servers:\n${jsFiles.join('\n')}`
+              : 'No MCP servers found.'
+        }
+      ]
     };
   } catch (error) {
     return {
       content: [
         {
-          type: "text",
-          text: `Error listing servers: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        },
+          type: 'text',
+          text: `Error listing servers: ${error instanceof Error ? error.message : String(error)}`
+        }
       ],
-      isError: true,
+      isError: true
     };
   }
 });
 
 server.tool(
-  "createMcpServer",
+  'createMcpServer',
   {
     serverName: z.string().min(1),
     serverCode: z.string().min(1),
-    registerWithClaude: z.boolean().default(true),
+    registerWithClaude: z.boolean().default(true)
   },
   async ({ serverName, serverCode, registerWithClaude }) => {
     try {
       await fs.mkdir(SERVERS_DIR, { recursive: true });
 
-      const sanitizedName = serverName.replace(/[^a-zA-Z0-9-_]/g, "_");
+      const sanitizedName = serverName.replace(/[^a-zA-Z0-9-_]/g, '_');
       const filename = `${sanitizedName}.js`;
       const filePath = path.join(SERVERS_DIR, filename);
 
@@ -276,23 +268,20 @@ server.tool(
         return {
           content: [
             {
-              type: "text",
-              text: `Error: Server "${serverName}" already exists at ${filePath}. Use 'updateMcpServer' to update it.`,
-            },
+              type: 'text',
+              text: `Error: Server "${serverName}" already exists at ${filePath}. Use 'updateMcpServer' to update it.`
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
 
       await fs.writeFile(filePath, serverCode);
 
-      let registrationMessage = "";
+      let registrationMessage = '';
       if (registerWithClaude) {
         try {
-          registrationMessage = await registerServerWithClaude(
-            sanitizedName,
-            filePath
-          );
+          registrationMessage = await registerServerWithClaude(sanitizedName, filePath);
         } catch (error) {
           registrationMessage = `Could not register with Claude Desktop: ${
             error instanceof Error ? error.message : String(error)
@@ -300,78 +289,76 @@ server.tool(
         }
       }
 
-      const lines = serverCode.split("\n");
+      const lines = serverCode.split('\n');
       const numberedLines = lines.map(
-        (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
+        (line, index) => `${(index + 1).toString().padStart(4, ' ')}| ${line}`
       );
-      const numberedCode = numberedLines.join("\n");
+      const numberedCode = numberedLines.join('\n');
 
       return {
         content: [
           {
-            type: "text",
-            text: `Successfully created JavaScript MCP server "${serverName}" at ${filePath}.\n${registrationMessage}\n\nServer content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${lines.length}\n\n*** IMPORTANT: Your server has ALREADY been saved to disk at ${filePath}. ***\nIf this conversation is interrupted due to context limits, you can start a new conversation and continue working on your server using updateMcpServer without losing any progress.`,
-          },
-        ],
+            type: 'text',
+            text: `Successfully created JavaScript MCP server "${serverName}" at ${filePath}.\n${registrationMessage}\n\nServer content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${lines.length}\n\n*** IMPORTANT: Your server has ALREADY been saved to disk at ${filePath}. ***\nIf this conversation is interrupted due to context limits, you can start a new conversation and continue working on your server using updateMcpServer without losing any progress.`
+          }
+        ]
       };
     } catch (error) {
       return {
         content: [
           {
-            type: "text",
-            text: `Error creating server: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          },
+            type: 'text',
+            text: `Error creating server: ${error instanceof Error ? error.message : String(error)}`
+          }
         ],
-        isError: true,
+        isError: true
       };
     }
   }
 );
 
-server.tool("getClaudeConfig", {}, async () => {
+server.tool('getClaudeConfig', {}, async () => {
   try {
     const configExists = await fileExists(CLAUDE_CONFIG_PATH);
     if (!configExists) {
       return {
         content: [
           {
-            type: "text",
-            text: `Claude Desktop config not found at ${CLAUDE_CONFIG_PATH}`,
-          },
-        ],
+            type: 'text',
+            text: `Claude Desktop config not found at ${CLAUDE_CONFIG_PATH}`
+          }
+        ]
       };
     }
 
-    const configData = await fs.readFile(CLAUDE_CONFIG_PATH, "utf-8");
+    const configData = await fs.readFile(CLAUDE_CONFIG_PATH, 'utf-8');
     return {
       content: [
         {
-          type: "text",
-          text: configData,
-        },
-      ],
+          type: 'text',
+          text: configData
+        }
+      ]
     };
   } catch (error) {
     return {
       content: [
         {
-          type: "text",
+          type: 'text',
           text: `Error reading Claude config: ${
             error instanceof Error ? error.message : String(error)
-          }`,
-        },
+          }`
+        }
       ],
-      isError: true,
+      isError: true
     };
   }
 });
 
 server.tool(
-  "updateClaudeConfig",
+  'updateClaudeConfig',
   {
-    configData: z.string(),
+    configData: z.string()
   },
   async ({ configData }) => {
     try {
@@ -382,56 +369,45 @@ server.tool(
       return {
         content: [
           {
-            type: "text",
-            text: `Successfully updated Claude Desktop config.`,
-          },
-        ],
+            type: 'text',
+            text: `Successfully updated Claude Desktop config.`
+          }
+        ]
       };
     } catch (error) {
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: `Error updating Claude config: ${
               error instanceof Error ? error.message : String(error)
-            }`,
-          },
+            }`
+          }
         ],
-        isError: true,
+        isError: true
       };
     }
   }
 );
 
 server.tool(
-  "updateMcpServer",
+  'updateMcpServer',
   {
     serverName: z.string().min(1),
-    updateType: z.enum(["full", "section", "add"]),
+    updateType: z.enum(['full', 'section', 'add']),
     startLine: z.number().int().positive().optional(),
     endLine: z.number().int().positive().optional(),
     insertAfterLine: z.number().int().positive().optional(),
     code: z.string().min(1),
-    description: z.string().optional(),
+    description: z.string().optional()
   },
-  async ({
-    serverName,
-    updateType,
-    startLine,
-    endLine,
-    insertAfterLine,
-    code,
-    description,
-  }) => {
+  async ({ serverName, updateType, startLine, endLine, insertAfterLine, code, description }) => {
     try {
-      const nameWithoutExtension = serverName.endsWith(".js")
+      const nameWithoutExtension = serverName.endsWith('.js')
         ? serverName.slice(0, -3)
         : serverName;
 
-      const sanitizedName = nameWithoutExtension.replace(
-        /[^a-zA-Z0-9-_]/g,
-        "_"
-      );
+      const sanitizedName = nameWithoutExtension.replace(/[^a-zA-Z0-9-_]/g, '_');
       const filename = `${sanitizedName}.js`;
       const filePath = path.join(SERVERS_DIR, filename);
 
@@ -440,50 +416,48 @@ server.tool(
         return {
           content: [
             {
-              type: "text",
-              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`,
-            },
+              type: 'text',
+              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
 
-      if (updateType === "full") {
+      if (updateType === 'full') {
         await fs.writeFile(filePath, code);
 
-        const updateDetails = description
-          ? `\nUpdate details: ${description}`
-          : "";
+        const updateDetails = description ? `\nUpdate details: ${description}` : '';
 
-        const updatedLines = code.split("\n");
+        const updatedLines = code.split('\n');
         const numberedLines = updatedLines.map(
-          (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
+          (line, index) => `${(index + 1).toString().padStart(4, ' ')}| ${line}`
         );
-        const numberedCode = numberedLines.join("\n");
+        const numberedCode = numberedLines.join('\n');
 
         return {
           content: [
             {
-              type: "text",
-              text: `Successfully updated entire MCP server "${nameWithoutExtension}".${updateDetails}\n\nUpdated file content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${updatedLines.length}`,
-            },
-          ],
+              type: 'text',
+              text: `Successfully updated entire MCP server "${nameWithoutExtension}".${updateDetails}\n\nUpdated file content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${updatedLines.length}`
+            }
+          ]
         };
       }
 
-      const serverCode = await fs.readFile(filePath, "utf-8");
-      const lines = serverCode.split("\n");
+      const serverCode = await fs.readFile(filePath, 'utf-8');
+      const lines = serverCode.split('\n');
 
-      if (updateType === "section") {
+      if (updateType === 'section') {
         if (!startLine || !endLine) {
           return {
             content: [
               {
-                type: "text",
-                text: `Error: When using updateType "section", both startLine and endLine must be provided.`,
-              },
+                type: 'text',
+                text: `Error: When using updateType "section", both startLine and endLine must be provided.`
+              }
             ],
-            isError: true,
+            isError: true
           };
         }
 
@@ -491,11 +465,11 @@ server.tool(
           return {
             content: [
               {
-                type: "text",
-                text: `Error: Line numbers out of range. The file has ${lines.length} lines, but you specified lines ${startLine}-${endLine}.`,
-              },
+                type: 'text',
+                text: `Error: Line numbers out of range. The file has ${lines.length} lines, but you specified lines ${startLine}-${endLine}.`
+              }
             ],
-            isError: true,
+            isError: true
           };
         }
 
@@ -503,55 +477,53 @@ server.tool(
           return {
             content: [
               {
-                type: "text",
-                text: `Error: Start line (${startLine}) cannot be greater than end line (${endLine}).`,
-              },
+                type: 'text',
+                text: `Error: Start line (${startLine}) cannot be greater than end line (${endLine}).`
+              }
             ],
-            isError: true,
+            isError: true
           };
         }
 
-        const newLines = code.split("\n");
+        const newLines = code.split('\n');
 
         const updatedLines = [
           ...lines.slice(0, startLine - 1),
           ...newLines,
-          ...lines.slice(endLine),
+          ...lines.slice(endLine)
         ];
 
-        const updatedCode = updatedLines.join("\n");
+        const updatedCode = updatedLines.join('\n');
 
         await fs.writeFile(filePath, updatedCode);
 
         const numberedLines = updatedLines.map(
-          (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
+          (line, index) => `${(index + 1).toString().padStart(4, ' ')}| ${line}`
         );
-        const numberedCode = numberedLines.join("\n");
+        const numberedCode = numberedLines.join('\n');
 
-        const updateDetails = description
-          ? `\nUpdate details: ${description}`
-          : "";
+        const updateDetails = description ? `\nUpdate details: ${description}` : '';
 
         return {
           content: [
             {
-              type: "text",
-              text: `Successfully updated lines ${startLine}-${endLine} of MCP server "${nameWithoutExtension}".${updateDetails}\n\nUpdated file content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${updatedLines.length}`,
-            },
-          ],
+              type: 'text',
+              text: `Successfully updated lines ${startLine}-${endLine} of MCP server "${nameWithoutExtension}".${updateDetails}\n\nUpdated file content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${updatedLines.length}`
+            }
+          ]
         };
       }
 
-      if (updateType === "add") {
+      if (updateType === 'add') {
         if (!insertAfterLine) {
           return {
             content: [
               {
-                type: "text",
-                text: `Error: When using updateType "add", insertAfterLine must be provided.`,
-              },
+                type: 'text',
+                text: `Error: When using updateType "add", insertAfterLine must be provided.`
+              }
             ],
-            isError: true,
+            isError: true
           };
         }
 
@@ -559,85 +531,78 @@ server.tool(
           return {
             content: [
               {
-                type: "text",
-                text: `Error: Line number out of range. The file has ${lines.length} lines, but you specified to insert after line ${insertAfterLine}.`,
-              },
+                type: 'text',
+                text: `Error: Line number out of range. The file has ${lines.length} lines, but you specified to insert after line ${insertAfterLine}.`
+              }
             ],
-            isError: true,
+            isError: true
           };
         }
 
-        const newLines = code.split("\n");
+        const newLines = code.split('\n');
 
         const updatedLines = [
           ...lines.slice(0, insertAfterLine),
           ...newLines,
-          ...lines.slice(insertAfterLine),
+          ...lines.slice(insertAfterLine)
         ];
 
-        const updatedCode = updatedLines.join("\n");
+        const updatedCode = updatedLines.join('\n');
 
         await fs.writeFile(filePath, updatedCode);
 
         const numberedLines = updatedLines.map(
-          (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
+          (line, index) => `${(index + 1).toString().padStart(4, ' ')}| ${line}`
         );
-        const numberedCode = numberedLines.join("\n");
+        const numberedCode = numberedLines.join('\n');
 
-        const updateDetails = description
-          ? `\nAddition details: ${description}`
-          : "";
+        const updateDetails = description ? `\nAddition details: ${description}` : '';
 
         return {
           content: [
             {
-              type: "text",
-              text: `Successfully added new code after line ${insertAfterLine} of MCP server "${nameWithoutExtension}".${updateDetails}\n\nUpdated file content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${updatedLines.length}`,
-            },
-          ],
+              type: 'text',
+              text: `Successfully added new code after line ${insertAfterLine} of MCP server "${nameWithoutExtension}".${updateDetails}\n\nUpdated file content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${updatedLines.length}`
+            }
+          ]
         };
       }
 
       return {
         content: [
           {
-            type: "text",
-            text: `Error: Invalid updateType "${updateType}". Must be one of: "full", "section", or "add".`,
-          },
+            type: 'text',
+            text: `Error: Invalid updateType "${updateType}". Must be one of: "full", "section", or "add".`
+          }
         ],
-        isError: true,
+        isError: true
       };
     } catch (error) {
       return {
         content: [
           {
-            type: "text",
-            text: `Error updating server: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          },
+            type: 'text',
+            text: `Error updating server: ${error instanceof Error ? error.message : String(error)}`
+          }
         ],
-        isError: true,
+        isError: true
       };
     }
   }
 );
 
 server.tool(
-  "getServerContent",
+  'getServerContent',
   {
-    serverName: z.string().min(1),
+    serverName: z.string().min(1)
   },
   async ({ serverName }) => {
     try {
-      const nameWithoutExtension = serverName.endsWith(".js")
+      const nameWithoutExtension = serverName.endsWith('.js')
         ? serverName.slice(0, -3)
         : serverName;
 
-      const sanitizedName = nameWithoutExtension.replace(
-        /[^a-zA-Z0-9-_]/g,
-        "_"
-      );
+      const sanitizedName = nameWithoutExtension.replace(/[^a-zA-Z0-9-_]/g, '_');
       const filename = `${sanitizedName}.js`;
       const filePath = path.join(SERVERS_DIR, filename);
 
@@ -646,52 +611,50 @@ server.tool(
         return {
           content: [
             {
-              type: "text",
-              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`,
-            },
+              type: 'text',
+              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
 
-      const serverCode = await fs.readFile(filePath, "utf-8");
+      const serverCode = await fs.readFile(filePath, 'utf-8');
 
-      const lines = serverCode.split("\n");
+      const lines = serverCode.split('\n');
       const numberedLines = lines.map(
-        (line, index) => `${(index + 1).toString().padStart(4, " ")}| ${line}`
+        (line, index) => `${(index + 1).toString().padStart(4, ' ')}| ${line}`
       );
-      const numberedCode = numberedLines.join("\n");
+      const numberedCode = numberedLines.join('\n');
 
       return {
         content: [
           {
-            type: "text",
-            text: `Server "${nameWithoutExtension}" content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${lines.length}`,
-          },
-        ],
+            type: 'text',
+            text: `Server "${nameWithoutExtension}" content with line numbers:\n\n${numberedCode}\n\nTotal lines: ${lines.length}`
+          }
+        ]
       };
     } catch (error) {
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: `Error reading server content: ${
               error instanceof Error ? error.message : String(error)
-            }`,
-          },
+            }`
+          }
         ],
-        isError: true,
+        isError: true
       };
     }
   }
 );
 
 server.tool(
-  "installServerDependencies",
+  'installServerDependencies',
   {
-    dependencies: z
-      .array(z.string())
-      .describe("List of npm packages to install"),
+    dependencies: z.array(z.string()).describe('List of npm packages to install')
   },
   async ({ dependencies }) => {
     try {
@@ -699,35 +662,32 @@ server.tool(
         return {
           content: [
             {
-              type: "text",
-              text: "No dependencies specified. Please provide a list of npm packages to install.",
-            },
+              type: 'text',
+              text: 'No dependencies specified. Please provide a list of npm packages to install.'
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
 
       const projectDir = CURRENT_DIR;
 
-      const packageJsonPath = path.join(projectDir, "package.json");
+      const packageJsonPath = path.join(projectDir, 'package.json');
       let packageJson;
 
       try {
-        const packageJsonContent = await fs.readFile(packageJsonPath, "utf-8");
+        const packageJsonContent = await fs.readFile(packageJsonPath, 'utf-8');
         packageJson = JSON.parse(packageJsonContent);
       } catch (err) {
         packageJson = {
-          name: "mcp-project",
-          version: "1.0.0",
-          type: "module",
+          name: 'mcp-project',
+          version: '1.0.0',
+          type: 'module',
           dependencies: {},
-          devDependencies: {},
+          devDependencies: {}
         };
 
-        await fs.writeFile(
-          packageJsonPath,
-          JSON.stringify(packageJson, null, 2)
-        );
+        await fs.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
       }
 
       if (!packageJson.dependencies) {
@@ -739,88 +699,49 @@ server.tool(
       }
 
       const missingDependencies = dependencies.filter(
-        (dep) => !packageJson.dependencies[dep.split("@")[0]]
+        (dep) => !packageJson.dependencies[dep.split('@')[0]]
       );
 
       if (missingDependencies.length === 0) {
         return {
           content: [
             {
-              type: "text",
-              text: "All specified dependencies are already installed.",
-            },
-          ],
+              type: 'text',
+              text: 'All specified dependencies are already installed.'
+            }
+          ]
         };
       }
 
-      const dependencyString = missingDependencies.join(" ");
+      const dependencyString = missingDependencies.join(' ');
 
       try {
         const originalDir = process.cwd();
         process.chdir(projectDir);
 
-        const { stdout, stderr } = await execAsync(
-          `npm install ${dependencyString} --save`
-        );
+        const { stdout, stderr } = await execAsync(`npm install ${dependencyString} --save`);
 
-        if (stderr && !stderr.includes("npm WARN")) {
+        if (stderr && !stderr.includes('npm WARN')) {
         }
-
-        // let installedTypes = [];
-
-        // for (const dep of missingDependencies) {
-        //   const basePackage = dep.split("@")[0];
-        //   const typePackage = `@types/${basePackage}`;
-
-        //   try {
-
-        //     const { stdout: typeVersionOutput } = await execAsync(
-        //       `npm view ${typePackage} version`
-        //     );
-
-        //     if (typeVersionOutput && typeVersionOutput.trim()) {
-
-        //       await execAsync(`npm install ${typePackage} --save-dev`);
-        //       installedTypes.push(typePackage);
-        //     }
-        //   } catch (typeError) {
-
-        //   }
-        // }
 
         process.chdir(originalDir);
 
-        const updatedPackageJsonContent = await fs.readFile(
-          packageJsonPath,
-          "utf-8"
-        );
+        const updatedPackageJsonContent = await fs.readFile(packageJsonPath, 'utf-8');
         const updatedPackageJson = JSON.parse(updatedPackageJsonContent);
 
-        const installedDeps = Object.keys(
-          updatedPackageJson.dependencies || {}
-        ).filter((key) =>
-          missingDependencies.some(
-            (dep) => dep.startsWith(key + "@") || dep === key
-          )
+        const installedDeps = Object.keys(updatedPackageJson.dependencies || {}).filter((key) =>
+          missingDependencies.some((dep) => dep.startsWith(key + '@') || dep === key)
         );
 
-        let successMessage = `Successfully installed dependencies: ${installedDeps.join(
-          ", "
-        )}`;
-
-        // if (installedTypes.length > 0) {
-        //   successMessage += `\nAlso installed TypeScript type definitions: ${installedTypes.join(
-        //     ", "
-        //   )}`;
-        // }
+        let successMessage = `Successfully installed dependencies: ${installedDeps.join(', ')}`;
 
         return {
           content: [
             {
-              type: "text",
-              text: successMessage,
-            },
-          ],
+              type: 'text',
+              text: successMessage
+            }
+          ]
         };
       } catch (installError) {
         try {
@@ -833,67 +754,43 @@ server.tool(
         return {
           content: [
             {
-              type: "text",
+              type: 'text',
               text: `Error installing dependencies: ${
-                installError instanceof Error
-                  ? installError.message
-                  : String(installError)
-              }\n\nPlease try installing manually by going to ${projectDir} and running: npm install ${dependencyString}`,
-            },
+                installError instanceof Error ? installError.message : String(installError)
+              }\n\nPlease try installing manually by going to ${projectDir} and running: npm install ${dependencyString}`
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
     } catch (outerError) {
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: `Error in dependency installation process: ${
-              outerError instanceof Error
-                ? outerError.message
-                : String(outerError)
-            }`,
-          },
+              outerError instanceof Error ? outerError.message : String(outerError)
+            }`
+          }
         ],
-        isError: true,
+        isError: true
       };
     }
   }
 );
 
-async function copyRecursive(src, dest) {
-  const stats = await fs.stat(src);
-
-  if (stats.isDirectory()) {
-    await fs.mkdir(dest, { recursive: true });
-    const entries = await fs.readdir(src);
-
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry);
-      const destPath = path.join(dest, entry);
-      await copyRecursive(srcPath, destPath);
-    }
-  } else {
-    await fs.copyFile(src, dest);
-  }
-}
-
 server.tool(
-  "analyzeServerDependencies",
+  'analyzeServerDependencies',
   {
-    serverName: z.string().min(1),
+    serverName: z.string().min(1)
   },
   async ({ serverName }) => {
     try {
-      const nameWithoutExtension = serverName.endsWith(".js")
+      const nameWithoutExtension = serverName.endsWith('.js')
         ? serverName.slice(0, -3)
         : serverName;
 
-      const sanitizedName = nameWithoutExtension.replace(
-        /[^a-zA-Z0-9-_]/g,
-        "_"
-      );
+      const sanitizedName = nameWithoutExtension.replace(/[^a-zA-Z0-9-_]/g, '_');
       const filename = `${sanitizedName}.js`;
       const filePath = path.join(SERVERS_DIR, filename);
 
@@ -902,15 +799,15 @@ server.tool(
         return {
           content: [
             {
-              type: "text",
-              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`,
-            },
+              type: 'text',
+              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
 
-      const serverCode = await fs.readFile(filePath, "utf-8");
+      const serverCode = await fs.readFile(filePath, 'utf-8');
 
       const importRegex = /import\s+(?:[\w\s{},*]+from\s+)?['"]([^'"]+)['"]/g;
       const imports = [];
@@ -920,34 +817,22 @@ server.tool(
         imports.push(match[1]);
       }
 
-      const nodeBuiltins = [
-        "fs",
-        "path",
-        "http",
-        "https",
-        "util",
-        "os",
-        "child_process",
-        "crypto",
-      ];
-      const sdkImports = ["@modelcontextprotocol/sdk"];
+      const nodeBuiltins = ['fs', 'path', 'http', 'https', 'util', 'os', 'child_process', 'crypto'];
+      const sdkImports = ['@modelcontextprotocol/sdk'];
 
       const externalDependencies = imports.filter((imp) => {
-        const isRelative =
-          imp.startsWith("./") || imp.startsWith("../") || imp.startsWith("/");
+        const isRelative = imp.startsWith('./') || imp.startsWith('../') || imp.startsWith('/');
         const isBuiltin = nodeBuiltins.some(
           (builtin) => imp === builtin || imp.startsWith(`${builtin}/`)
         );
-        const isSdk = sdkImports.some(
-          (sdk) => imp === sdk || imp.startsWith(`${sdk}/`)
-        );
+        const isSdk = sdkImports.some((sdk) => imp === sdk || imp.startsWith(`${sdk}/`));
 
         return !isRelative && !isBuiltin && !isSdk;
       });
 
       const packageNames = externalDependencies.map((dep) => {
-        const parts = dep.split("/");
-        if (dep.startsWith("@")) {
+        const parts = dep.split('/');
+        if (dep.startsWith('@')) {
           return `${parts[0]}/${parts[1]}`;
         } else {
           return parts[0];
@@ -959,48 +844,45 @@ server.tool(
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text:
               uniquePackages.length > 0
                 ? `Server "${nameWithoutExtension}" depends on these packages: ${uniquePackages.join(
-                    ", "
+                    ', '
                   )}`
-                : `Server "${nameWithoutExtension}" does not have external dependencies.`,
-          },
-        ],
+                : `Server "${nameWithoutExtension}" does not have external dependencies.`
+          }
+        ]
       };
     } catch (error) {
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: `Error analyzing server dependencies: ${
               error instanceof Error ? error.message : String(error)
-            }`,
-          },
+            }`
+          }
         ],
-        isError: true,
+        isError: true
       };
     }
   }
 );
 
 server.tool(
-  "runServerDirectly",
+  'runServerDirectly',
   {
     serverName: z.string().min(1),
-    timeout: z.number().int().positive().default(10000),
+    timeout: z.number().int().positive().default(10000)
   },
   async ({ serverName, timeout }) => {
     try {
-      const nameWithoutExtension = serverName.endsWith(".js")
+      const nameWithoutExtension = serverName.endsWith('.js')
         ? serverName.slice(0, -3)
         : serverName;
 
-      const sanitizedName = nameWithoutExtension.replace(
-        /[^a-zA-Z0-9-_]/g,
-        "_"
-      );
+      const sanitizedName = nameWithoutExtension.replace(/[^a-zA-Z0-9-_]/g, '_');
       const filename = `${sanitizedName}.js`;
       const filePath = path.join(SERVERS_DIR, filename);
 
@@ -1009,29 +891,29 @@ server.tool(
         return {
           content: [
             {
-              type: "text",
-              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`,
-            },
+              type: 'text',
+              text: `Error: Server "${nameWithoutExtension}" does not exist. Please use 'listServers' first to see available servers.`
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
 
-      const { spawn } = await import("child_process");
+      const { spawn } = await import('child_process');
 
-      const nodeProcess = spawn("node", [filePath], {
-        stdio: ["pipe", "pipe", "pipe"],
+      const nodeProcess = spawn('node', [filePath], {
+        stdio: ['pipe', 'pipe', 'pipe']
       });
 
-      let stdout = "";
-      let stderr = "";
+      let stdout = '';
+      let stderr = '';
       let hasError = false;
 
-      nodeProcess.stdout.on("data", (data) => {
+      nodeProcess.stdout.on('data', (data) => {
         stdout += data.toString();
       });
 
-      nodeProcess.stderr.on("data", (data) => {
+      nodeProcess.stderr.on('data', (data) => {
         stderr += data.toString();
         hasError = true;
       });
@@ -1041,7 +923,7 @@ server.tool(
       }, timeout);
 
       await new Promise((resolve) => {
-        nodeProcess.on("exit", (code) => {
+        nodeProcess.on('exit', (code) => {
           clearTimeout(timeoutId);
           if (code !== 0 && code !== null) {
             hasError = true;
@@ -1050,7 +932,7 @@ server.tool(
         });
       });
 
-      let resultText = "";
+      let resultText = '';
       if (hasError) {
         resultText = `Server "${nameWithoutExtension}" encountered errors during execution:\n\n`;
         if (stderr) {
@@ -1060,40 +942,38 @@ server.tool(
           resultText += `STDOUT:\n${stdout}\n`;
         }
         resultText += `\nCommon issues that might cause this server not to run:
-1. Syntax errors in the server code
-2. Missing dependencies - use analyzeServerDependencies and installServerDependencies
-3. The server not properly connecting to the transport - make sure server.connect(transport) is called`;
+        1. Syntax errors in the server code
+        2. Missing dependencies - use analyzeServerDependencies and installServerDependencies
+        3. The server not properly connecting to the transport - make sure server.connect(transport) is called`;
       } else {
         resultText = `Server "${nameWithoutExtension}" started successfully and ran for ${timeout}ms.\n\n`;
         if (stdout) {
           resultText += `STDOUT:\n${stdout}\n\n`;
         }
         resultText += `The server appears to be working correctly. If it's not appearing in Claude Desktop:
-1. Make sure it's properly registered in the Claude Desktop config
-2. Try restarting Claude Desktop
-3. Check that the server path in the config is correct`;
+        1. Make sure it's properly registered in the Claude Desktop config
+        2. Try restarting Claude Desktop
+        3. Check that the server path in the config is correct`;
       }
 
       return {
         content: [
           {
-            type: "text",
-            text: resultText,
-          },
+            type: 'text',
+            text: resultText
+          }
         ],
-        isError: hasError,
+        isError: hasError
       };
     } catch (error) {
       return {
         content: [
           {
-            type: "text",
-            text: `Error running server: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          },
+            type: 'text',
+            text: `Error running server: ${error instanceof Error ? error.message : String(error)}`
+          }
         ],
-        isError: true,
+        isError: true
       };
     }
   }
@@ -1106,13 +986,10 @@ async function registerServerWithClaude(serverName, serverPath) {
   const configExists = await fileExists(CLAUDE_CONFIG_PATH);
 
   if (!configExists) {
-    await fs.writeFile(
-      CLAUDE_CONFIG_PATH,
-      JSON.stringify({ mcpServers: {} }, null, 2)
-    );
+    await fs.writeFile(CLAUDE_CONFIG_PATH, JSON.stringify({ mcpServers: {} }, null, 2));
   }
 
-  const configData = await fs.readFile(CLAUDE_CONFIG_PATH, "utf-8");
+  const configData = await fs.readFile(CLAUDE_CONFIG_PATH, 'utf-8');
   const config = JSON.parse(configData);
 
   if (!config.mcpServers) {
@@ -1120,9 +997,9 @@ async function registerServerWithClaude(serverName, serverPath) {
   }
 
   config.mcpServers[serverName] = {
-    command: "node",
+    command: 'node',
     args: [serverPath],
-    env: {},
+    env: {}
   };
 
   await fs.writeFile(CLAUDE_CONFIG_PATH, JSON.stringify(config, null, 2));

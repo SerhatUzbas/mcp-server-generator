@@ -66,9 +66,7 @@ example:
 >   "mcpServers": {
 >     "mcp-server-generator": {
 >       "command": "node",
->       "args": [
->         "C:\\Users\\username\\Documents\\GitHub\\mcprotocol\\creator-server.js"
->       ]
+>       "args": ["C:\\Users\\username\\Documents\\GitHub\\mcprotocol\\creator-server.js"]
 >     }
 >   }
 > }
@@ -87,13 +85,7 @@ Once registered, you can use the MCP Server Creator through Claude Desktop:
 Ask Claude to create a server for your specific needs:
 
 ```
-Create an MCP server that integrates with the OpenWeather API to provide weather forecasts.
-```
-
-or try more higher level explanation:
-
-```
-Create an MCP server that retrieves the weather forecast that i request.
+Create an simple MCP server that integrates with PostgreSQL to provide database operations and query capabilities.
 ```
 
 Claude will (probably):
