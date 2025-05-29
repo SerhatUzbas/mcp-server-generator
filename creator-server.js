@@ -1015,3 +1015,6 @@ async function fileExists(filePath) {
     return false;
   }
 }
+
+// todo:
+// - consider removing full update, and only allowing section update

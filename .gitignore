@@ -20,30 +20,14 @@ build/
 
 # Dependency directories
 jspm_packages/
-
-# TypeScript
-*.tsbuildinfo
-
 # IDEs and editors
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
 
-# Miscellaneous
-*.tgz
-*.zip
-*.tar
-*.rar
-*.7z
-*.bak
-*.tmp
-*.swp
-*.swo
-*.sublime-workspace
-*.sublime-project
+
 # Start Generation Here
-# End Generation Here
 
 READMEFORME.md
 

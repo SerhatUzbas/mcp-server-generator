@@ -16,7 +16,7 @@
   "license": "MIT",
   "dependencies": {
     "@google-cloud/bigquery": "^8.0.0",
-    "@modelcontextprotocol/sdk": "^1.11.2",
+    "@modelcontextprotocol/sdk": "^1.12.0",
     "@types/pg": "^8.15.2",
     "node-fetch": "^2.7.0",
     "pg": "^8.16.0",
