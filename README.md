@@ -1,4 +1,4 @@
-# MCP Server Creator
+# MCP Server Generator
 
 A tool for creating and managing Model Context Protocol (MCP) servers for Claude Desktop.
 
